@@ -298,8 +298,18 @@ def process_transaction(req: TransactionRequest):
 
     risk_score = sync_risk(req.from_account)
     status = "APPROVED"
+    block_reason = None
+
+    # Block if sender is frozen.
     if get_account_status(req.from_account) == "FROZEN":
         status = "BLOCKED"
+        block_reason = "Source account is frozen"
+
+    # Block incoming transfers to a frozen internal account.
+    if status != "BLOCKED" and req.to_account.startswith("ACC_"):
+        if get_account_status(req.to_account) == "FROZEN":
+            status = "BLOCKED"
+            block_reason = "Destination account is frozen"
 
     txn_payload = {
         "txn_id": f"TXN_{uuid4().hex[:12].upper()}",
@@ -313,7 +323,7 @@ def process_transaction(req: TransactionRequest):
     repo.log_transaction(txn_payload)
 
     if status == "BLOCKED":
-        raise HTTPException(status_code=403, detail="Account frozen")
+        raise HTTPException(status_code=403, detail=block_reason or "Account frozen")
     return {"transaction": txn_payload}
 
 

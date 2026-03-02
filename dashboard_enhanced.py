@@ -435,6 +435,13 @@ st.markdown("""
         color: #1e3a8a;
         font-size: 0.95rem;
     }
+    [data-testid="stAlert"] {
+        color: #111827 !important;
+    }
+    [data-testid="stAlert"] * {
+        color: #111827 !important;
+        -webkit-text-fill-color: #111827 !important;
+    }
     .status-badge {
         display: inline-block;
         padding: 6px 12px;
@@ -751,11 +758,11 @@ filtered_txns = txn_df[(txn_df['timestamp'] >= time_start) & (txn_df['timestamp'
 
 st.sidebar.info(f"📊 Showing {len(filtered_cyber):,} events and {len(filtered_txns):,} transactions")
 
-VIEW_OPTIONS = ["Dashboard", "Live Graph", "Account Lookup", "Ring Analysis"]
+VIEW_OPTIONS = ["Dashboard", "Live Graph", "Account Lookup", "Ring Analysis", "Initiate Transaction"]
 if "view_mode" not in st.session_state or st.session_state.view_mode not in VIEW_OPTIONS:
     st.session_state.view_mode = VIEW_OPTIONS[0]
 
-top_title, top_overview, top_revenue, top_account, top_ring, top_spacer = st.columns([2.2, 0.9, 1.2, 1.1, 1.1, 3.6])
+top_title, top_overview, top_revenue, top_account, top_ring, top_txn, top_spacer = st.columns([2.1, 0.9, 1.2, 1.1, 1.1, 1.2, 2.1])
 with top_title:
     st.markdown("**CyberFin Fusion Console**")
 with top_overview:
@@ -773,6 +780,10 @@ with top_account:
 with top_ring:
     if st.button("Ring Analysis", key="e_top_ring", type="primary" if st.session_state.view_mode == "Ring Analysis" else "secondary", use_container_width=True):
         st.session_state.view_mode = "Ring Analysis"
+        st.rerun()
+with top_txn:
+    if st.button("Initiate Transaction", key="e_top_txn", type="primary" if st.session_state.view_mode == "Initiate Transaction" else "secondary", use_container_width=True):
+        st.session_state.view_mode = "Initiate Transaction"
         st.rerun()
 
 view_mode = st.session_state.view_mode
@@ -792,25 +803,6 @@ if view_mode == "Dashboard":
     with col5: st.metric("🧊 Frozen Accounts", repo.frozen_accounts_count())
     with col6: st.metric("⛔ Blocked Txns", repo.blocked_transactions_count())
 
-    if st.button("Generate Suspicious Transaction", key="demo_suspicious_btn", type="primary"):
-        demo_response = safe_post_json(f"{backend_base_url}/transactions/demo-suspicious")
-        if demo_response is not None and demo_response.status_code < 300:
-            payload = demo_response.json()
-            flagged = payload.get("flagged_account", {})
-            txn = payload.get("transaction", {})
-            if txn.get("status") == "BLOCKED":
-                st.warning(
-                    f"Transaction blocked for {flagged.get('account_id')} because account is frozen "
-                    f"(Risk {flagged.get('risk_score')})"
-                )
-            else:
-                st.success(
-                    f"Suspicious transaction created for {flagged.get('account_id')} "
-                    f"(Risk {flagged.get('risk_score')})"
-                )
-        else:
-            st.warning("Backend demo endpoint unreachable. Start FastAPI backend to run this flow.")
-    
     st.subheader("⚠️ High-Risk Accounts")
     if flagged_accounts:
         risk_data = []
@@ -1116,6 +1108,58 @@ elif view_mode == "Account Lookup":
 
     elif account_id:
         st.error("Account not found. Please verify the ID.")
+
+# ------------------------------------------
+# VIEW: TRANSACTION TEST
+# ------------------------------------------
+elif view_mode == "Initiate Transaction":
+    st.subheader("💳 Initiate Transaction")
+    st.markdown("Create a transaction manually and verify **PASS** or **BLOCKED** based on account status.")
+
+    tx_col1, tx_col2 = st.columns(2)
+    with tx_col1:
+        tx_from = st.text_input("From Account ID", value="ACC_002747", key="tx_from_input")
+    with tx_col2:
+        tx_to = st.text_input("To Account ID", value="BEN_TEST_001", key="tx_to_input")
+
+    tx_amount = st.number_input("Amount", min_value=1.0, value=1200.0, step=100.0, key="tx_amount_input")
+
+    if tx_from:
+        from_acc = repo.get_account(tx_from)
+        if from_acc:
+            st.markdown(f"Source Account Status: {status_badge(from_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
+        else:
+            st.info("Source account not found in account-state table yet.")
+
+    if tx_to and tx_to.startswith("ACC_"):
+        to_acc = repo.get_account(tx_to)
+        if to_acc:
+            st.markdown(f"Destination Account Status: {status_badge(to_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
+        else:
+            st.info("Destination account not found in account-state table yet.")
+
+    if st.button("Create Transaction", key="tx_create_btn", type="primary"):
+        response = safe_post_json(
+            f"{backend_base_url}/transactions/process",
+            payload={"from_account": tx_from, "to_account": tx_to, "amount": float(tx_amount)},
+        )
+
+        if response is None:
+            st.error("Backend unreachable. Start FastAPI backend.")
+        elif response.status_code < 300:
+            payload = response.json()
+            tx = payload.get("transaction", {})
+            st.success(f"PASS: Transaction approved ({tx.get('txn_id')})")
+            st.json(tx)
+        elif response.status_code == 403:
+            detail = response.json().get("detail", "Account frozen")
+            st.error(f"BLOCKED: {detail}")
+        elif response.status_code == 404:
+            detail = response.json().get("detail", "Source account not found")
+            st.warning(detail)
+        else:
+            detail = response.text
+            st.error(f"Transaction failed: {detail}")
 
 # Footer
 st.sidebar.markdown("---")
