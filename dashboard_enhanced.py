@@ -14,34 +14,173 @@ st.set_page_config(page_title="CyberFin Fusion", layout="wide", page_icon="🛡�
 # Demo mode warning
 st.warning("⚠️ **DEMO MODE**: This system uses mock data for demonstration. Graph visualization limited to 500 nodes for performance. Production deployment would use real-time data streams and handle millions of nodes.", icon="⚠️")
 
-# Custom CSS for better styling
+# Reference-style light dashboard CSS
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    :root {
+        --bg: #F5F7FB;
+        --card: #FFFFFF;
+        --primary: #5B6CFF;
+        --primary-dark: #3F4BD9;
+        --text: #0F172A;
+        --text-secondary: #64748B;
+        --text-muted: #94A3B8;
+        --border: #E6EAF2;
+        --shadow: 0 10px 30px rgba(15,23,42,0.08);
+    }
+    .stApp {
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    ::selection {
+        background: #cfe1ff;
+        color: #0F172A;
+    }
+    ::-moz-selection {
+        background: #cfe1ff;
+        color: #0F172A;
+    }
+    header[data-testid="stHeader"] {
+        background: transparent;
+        height: 0;
+    }
+    #MainMenu, footer { visibility: hidden; }
+    .main .block-container {
+        max-width: 1300px;
+        padding-top: 24px;
+        padding-bottom: 24px;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #f9fbff 0%, #f2f5fb 100%);
+        border-right: 1px solid var(--border);
+    }
+    [data-testid="stSidebar"] * { color: var(--text) !important; }
+    [data-testid="stMetric"] {
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+        border: 1px solid var(--border);
+        padding: 18px;
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+    }
+    [data-testid="stMetricLabel"] {
+        color: var(--text-secondary) !important;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+    }
+    [data-testid="stMetricValue"] { color: var(--text) !important; font-weight: 700; }
+    h1, h2, h3, h4 { color: var(--text) !important; font-weight: 600 !important; letter-spacing: -0.02em; }
+    .stButton > button, .stDownloadButton > button {
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #f7f9ff;
+        color: var(--text);
+        font-weight: 600;
+        padding: 8px 14px;
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%);
+        border: none;
+        color: #ffffff;
+    }
+    [data-baseweb="input"] > div, [data-baseweb="select"] > div, .stTextInput > div > div {
+        border-radius: 12px !important;
+        border-color: var(--border) !important;
+        background: #ffffff !important;
+    }
+    [data-baseweb="input"] input,
+    .stTextInput input,
+    .stTextArea textarea,
+    [data-baseweb="select"] input {
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+        caret-color: #0F172A !important;
+    }
+    [data-baseweb="input"] input::placeholder,
+    .stTextInput input::placeholder,
+    .stTextArea textarea::placeholder,
+    [data-baseweb="select"] input::placeholder {
+        color: #64748B !important;
+        -webkit-text-fill-color: #64748B !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--card);
+        box-shadow: var(--shadow);
+    }
+    .js-plotly-plot .plotly .xtick text,
+    .js-plotly-plot .plotly .ytick text,
+    .js-plotly-plot .plotly .legend text,
+    .js-plotly-plot .plotly .gtitle,
+    .js-plotly-plot .plotly .infolayer text,
+    .js-plotly-plot .plotly .hovertext text {
+        fill: #0F172A !important;
+        color: #0F172A !important;
+    }
+    .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        padding: 16px 18px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+    .chip {
+        display: inline-block;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: #eef2ff;
+        border: 1px solid var(--border);
+        color: #334155;
+        font-size: 13px;
+        font-weight: 600;
+        margin-right: 8px;
+    }
+    .chip.active { color: var(--primary-dark); background: #e8edff; }
+    .cta {
+        display: inline-block;
+        border-radius: 10px;
+        padding: 8px 14px;
+        color: #fff;
+        font-weight: 600;
+        font-size: 13px;
+        margin-left: 8px;
+    }
+    .cta.deposit { background: var(--primary); }
+    .cta.transfer { background: #111827; }
+
     .victim-popup {
-        background-color: #fff3cd;
-        border-left: 5px solid #ffc107;
+        background-color: #fff8dc;
+        border-left: 5px solid #f59e0b;
         padding: 15px;
         margin: 10px 0;
-        border-radius: 5px;
+        border-radius: 12px;
+        color: #7c5a12;
+        border: 1px solid #f9ddb1;
     }
     .alert-critical {
-        background-color: #f8d7da;
-        border-left: 5px solid #dc3545;
+        background-color: #fee2e2;
+        border-left: 5px solid #ef4444;
         padding: 15px;
         margin: 10px 0;
-        border-radius: 5px;
-    }
-    .metric-card {
-        background-color: #f8f9fa;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 12px;
+        color: #991b1b;
+        border: 1px solid #fecaca;
     }
     .demo-warning {
-        background-color: #fff3cd;
-        border: 2px solid #ffc107;
+        background-color: #fff8dc;
+        border: 2px solid #f59e0b;
         padding: 10px;
-        border-radius: 5px;
+        border-radius: 12px;
         margin: 10px 0;
     }
 </style>
@@ -67,6 +206,14 @@ def initialize_explainer():
     explainer = GeminiExplainer()
     # Show API status in sidebar
     return explainer
+
+def compute_graph_layout(graph):
+    try:
+        return nx.spring_layout(graph, k=0.5, iterations=50), False
+    except ModuleNotFoundError as exc:
+        if "scipy" in str(exc).lower():
+            return nx.circular_layout(graph), True
+        raise
 
 # Fake job ads for victim popup
 FAKE_JOB_ADS = [
@@ -121,12 +268,36 @@ def export_sar_report(flagged_accounts, rings):
     return report_df
 
 # Main app
-st.title("🛡️ CyberFin Fusion - Unified Cyber-Financial Intelligence")
-st.markdown("**Stop the Money Before It Disappears**")
+st.title("🏦 CyberFin Fusion - Enterprise Financial Intelligence")
+st.markdown("<p style='color: #64748B; font-size: 1.05rem;'>Unified Anti-Money Laundering & Threat Detection Portal</p>", unsafe_allow_html=True)
 
 cyber_df, txn_df = load_data()
 detector = initialize_detector(cyber_df, txn_df)
 explainer = initialize_explainer()
+
+VIEW_OPTIONS = ["Dashboard", "Live Graph", "Account Lookup", "Ring Analysis"]
+if "view_mode" not in st.session_state or st.session_state.view_mode not in VIEW_OPTIONS:
+    st.session_state.view_mode = VIEW_OPTIONS[0]
+
+top_title, top_overview, top_revenue, top_retention, top_spacer, top_deposit, top_transfer = st.columns([2.4, 1, 1.25, 1, 2.25, 0.9, 0.9])
+with top_title:
+    st.markdown("**CyberFin Fusion Console**")
+with top_overview:
+    if st.button("Overview", key="de_top_overview", type="primary" if st.session_state.view_mode == "Dashboard" else "secondary", use_container_width=True):
+        st.session_state.view_mode = "Dashboard"
+        st.rerun()
+with top_revenue:
+    if st.button("Revenue Signals", key="de_top_revenue", type="primary" if st.session_state.view_mode == "Live Graph" else "secondary", use_container_width=True):
+        st.session_state.view_mode = "Live Graph"
+        st.rerun()
+with top_retention:
+    if st.button("Retention", key="de_top_retention", type="primary" if st.session_state.view_mode == "Ring Analysis" else "secondary", use_container_width=True):
+        st.session_state.view_mode = "Ring Analysis"
+        st.rerun()
+with top_deposit:
+    st.button("Deposit", key="de_top_deposit", use_container_width=True)
+with top_transfer:
+    st.button("Transfer", key="de_top_transfer", use_container_width=True)
 
 # Sidebar
 st.sidebar.header("⚙️ Controls")
@@ -160,7 +331,10 @@ filtered_txns = txn_df[(txn_df['timestamp'] >= time_start) & (txn_df['timestamp'
 
 st.sidebar.info(f"📊 Showing {len(filtered_cyber):,} events and {len(filtered_txns):,} transactions")
 
-view_mode = st.sidebar.radio("View Mode", ["Dashboard", "Live Graph", "Account Lookup", "Ring Analysis"])
+selected_mode = st.sidebar.selectbox("View Mode", VIEW_OPTIONS, index=VIEW_OPTIONS.index(st.session_state.view_mode))
+if selected_mode != st.session_state.view_mode:
+    st.session_state.view_mode = selected_mode
+view_mode = st.session_state.view_mode
 
 # Export buttons in sidebar
 st.sidebar.markdown("---")
@@ -212,7 +386,14 @@ if view_mode == "Dashboard":
         # Risk distribution
         fig_risk = px.histogram(df_risks, x='Risk Score', nbins=20, 
                                title="Risk Score Distribution",
-                               color_discrete_sequence=['#FF4B4B'])
+                               color_discrete_sequence=['#5B6CFF'])
+        fig_risk.update_layout(
+            template="plotly_white",
+            plot_bgcolor='rgba(255,255,255,0)',
+            paper_bgcolor='rgba(255,255,255,0)',
+            font=dict(color="#0F172A"),
+            legend=dict(font=dict(color="#0F172A"))
+        )
         st.plotly_chart(fig_risk, use_container_width=True)
     
     # Mule rings
@@ -235,6 +416,15 @@ if view_mode == "Dashboard":
     
     fig_timeline = px.line(event_counts, x='timestamp', y='count', color='event_type',
                           title="Cyber Events Over Time")
+    fig_timeline.update_layout(
+        template="plotly_white",
+        plot_bgcolor='rgba(255,255,255,0)',
+        paper_bgcolor='rgba(255,255,255,0)',
+        font=dict(color="#0F172A"),
+        legend=dict(font=dict(color="#0F172A")),
+        height=620,
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
     st.plotly_chart(fig_timeline, use_container_width=True)
 
 elif view_mode == "Live Graph":
@@ -267,10 +457,12 @@ elif view_mode == "Live Graph":
                     node_count = len(subgraph.nodes())
         
         # Create plotly network graph
-        pos = nx.spring_layout(subgraph, k=0.5, iterations=50)
+        pos, used_fallback_layout = compute_graph_layout(subgraph)
+        if used_fallback_layout:
+            st.info("SciPy not installed in this environment. Using fallback graph layout.")
         
         edge_trace = go.Scatter(
-            x=[], y=[], line=dict(width=0.5, color='#888'), hoverinfo='none', mode='lines')
+            x=[], y=[], line=dict(width=0.5, color='#94A3B8'), hoverinfo='none', mode='lines')
         
         for edge in subgraph.edges():
             x0, y0 = pos[edge[0]]
@@ -294,6 +486,8 @@ elif view_mode == "Live Graph":
                            showlegend=False,
                            hovermode='closest',
                            margin=dict(b=0,l=0,r=0,t=40),
+                           plot_bgcolor='rgba(255,255,255,0)',
+                           paper_bgcolor='rgba(255,255,255,0)',
                            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
                        )
@@ -393,9 +587,14 @@ elif view_mode == "Ring Analysis":
 elif view_mode == "Account Lookup":
     st.subheader("🔍 Account Risk Analysis")
     
-    account_id = st.text_input("Enter Account ID (e.g., ACC_002747)")
+    input_col, button_col = st.columns([4, 1])
+    with input_col:
+        account_id = st.text_input("Enter Account ID (e.g., ACC_002747)")
+    with button_col:
+        st.markdown("<div style='height: 1.75rem;'></div>", unsafe_allow_html=True)
+        analyze_clicked = st.button("Analyze", type="primary", use_container_width=True)
     
-    if account_id and st.button("Analyze"):
+    if account_id and analyze_clicked:
         if account_id in cyber_df['account_id'].values:
             risk_score = detector.calculate_risk_score(account_id)
             cyber_flags = detector.detect_cyber_anomalies(account_id)

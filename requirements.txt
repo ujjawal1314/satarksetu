@@ -12,3 +12,6 @@ pytest
 pytest-cov
 pytest-asyncio
 httpx
+scipy
+
+neo4j
