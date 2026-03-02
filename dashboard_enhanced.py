@@ -8,6 +8,7 @@ import base64
 from datetime import datetime, timedelta
 import random
 import os
+import httpx
 
 # Securely load environment variables
 try:
@@ -23,6 +24,7 @@ except ImportError:
 
 from detection_engine_neo4j import CyberFinDetectorNeo4j
 from gemini_explainer import GeminiExplainer
+from repositories import AccountRepository
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -100,6 +102,21 @@ st.markdown("""
         background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%);
         border: none;
         color: #ffffff;
+    }
+    .stButton > button:disabled,
+    .stDownloadButton > button:disabled {
+        background: #EEF2F7 !important;
+        border: 1px solid #D5DCE8 !important;
+        color: #64748B !important;
+        -webkit-text-fill-color: #64748B !important;
+        opacity: 1 !important;
+        cursor: not-allowed !important;
+    }
+    .stButton > button:disabled *,
+    .stDownloadButton > button:disabled * {
+        color: #64748B !important;
+        -webkit-text-fill-color: #64748B !important;
+        opacity: 1 !important;
     }
     [data-testid="stSidebar"] .stButton > button {
         background: #1F2937 !important;
@@ -418,15 +435,36 @@ st.markdown("""
         color: #1e3a8a;
         font-size: 0.95rem;
     }
+    .status-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.01em;
+        margin-left: 8px;
+    }
+    .status-active {
+        background: #DCFCE7;
+        color: #166534;
+        border: 1px solid #86EFAC;
+    }
+    .status-frozen {
+        background: #FEE2E2;
+        color: #991B1B;
+        border: 1px solid #FCA5A5;
+    }
+    .status-review {
+        background: #FFEDD5;
+        color: #9A3412;
+        border: 1px solid #FDBA74;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
 # SESSION STATE INITIALIZATION
 # ==========================================
-if "frozen_accounts" not in st.session_state:
-    st.session_state.frozen_accounts = set()
-
 if "ai_outputs" not in st.session_state:
     st.session_state.ai_outputs = {}
 
@@ -463,6 +501,10 @@ def initialize_explainer():
             pass
     explainer = GeminiExplainer()
     return explainer
+
+@st.cache_resource
+def initialize_repo():
+    return AccountRepository()
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -541,6 +583,21 @@ def image_to_data_uri(file_path):
         return f"data:{mime};base64,{encoded}"
     except Exception:
         return ""
+
+def status_badge(status):
+    if status == "FROZEN":
+        return '<span class="status-badge status-frozen">FROZEN</span>'
+    if status == "UNDER_REVIEW":
+        return '<span class="status-badge status-review">UNDER REVIEW</span>'
+    return '<span class="status-badge status-active">ACTIVE</span>'
+
+def safe_post_json(url, payload=None, timeout=4.0):
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            res = client.post(url, json=payload or {})
+        return res
+    except Exception:
+        return None
 
 # ==========================================
 # MAIN APP EXECUTION
@@ -648,6 +705,8 @@ st.markdown("<p style='color: #64748B; font-size: 1.05rem;'>Unified Anti-Money L
 cyber_df, txn_df = load_data()
 detector = initialize_detector(cyber_df, txn_df)
 explainer = initialize_explainer()
+repo = initialize_repo()
+backend_base_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 
 st.sidebar.header("⚙️ Controls")
 
@@ -672,6 +731,11 @@ if hasattr(detector, 'db_stats'):
     else:
         st.sidebar.success(f"✅ Graph DB: Neo4j Architecture", icon="🗄️")
     st.sidebar.caption(f"📊 {nodes:,} nodes, {edges:,} edges")
+
+if repo.client:
+    st.sidebar.success("✅ Accounts DB: Supabase", icon="🧱")
+else:
+    st.sidebar.warning("⚠️ Accounts DB: Fallback mode", icon="🧪")
 
 risk_threshold = st.sidebar.slider("Risk Score Threshold", 0, 100, 50)
 
@@ -717,7 +781,7 @@ view_mode = st.session_state.view_mode
 # VIEW: DASHBOARD
 # ------------------------------------------
 if view_mode == "Dashboard":
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     flagged_accounts = detector.get_flagged_accounts(threshold=risk_threshold)
     rings = detector.detect_mule_rings()
     
@@ -725,10 +789,40 @@ if view_mode == "Dashboard":
     with col2: st.metric("🔗 Mule Rings Detected", len(rings))
     with col3: st.metric("📊 Total Events", f"{len(filtered_cyber):,}")
     with col4: st.metric("💰 Total Transactions", f"{len(filtered_txns):,}")
+    with col5: st.metric("🧊 Frozen Accounts", repo.frozen_accounts_count())
+    with col6: st.metric("⛔ Blocked Txns", repo.blocked_transactions_count())
+
+    if st.button("Generate Suspicious Transaction", key="demo_suspicious_btn", type="primary"):
+        demo_response = safe_post_json(f"{backend_base_url}/transactions/demo-suspicious")
+        if demo_response is not None and demo_response.status_code < 300:
+            payload = demo_response.json()
+            flagged = payload.get("flagged_account", {})
+            txn = payload.get("transaction", {})
+            if txn.get("status") == "BLOCKED":
+                st.warning(
+                    f"Transaction blocked for {flagged.get('account_id')} because account is frozen "
+                    f"(Risk {flagged.get('risk_score')})"
+                )
+            else:
+                st.success(
+                    f"Suspicious transaction created for {flagged.get('account_id')} "
+                    f"(Risk {flagged.get('risk_score')})"
+                )
+        else:
+            st.warning("Backend demo endpoint unreachable. Start FastAPI backend to run this flow.")
     
     st.subheader("⚠️ High-Risk Accounts")
     if flagged_accounts:
-        risk_data = [{'Account': acc['account_id'], 'Risk Score': acc['risk_score'], 'Cyber Flags': ', '.join(acc['cyber_flags']) if acc['cyber_flags'] else 'None', 'Financial Flags': ', '.join(acc['financial_flags']) if acc['financial_flags'] else 'None'} for acc in flagged_accounts[:20]]
+        risk_data = []
+        for acc in flagged_accounts[:20]:
+            rec = repo.get_account(acc["account_id"]) or repo.ensure_account(acc["account_id"])
+            risk_data.append({
+                'Account': acc['account_id'],
+                'Risk Score': acc['risk_score'],
+                'Status': rec.get("status", "ACTIVE"),
+                'Cyber Flags': ', '.join(acc['cyber_flags']) if acc['cyber_flags'] else 'None',
+                'Financial Flags': ', '.join(acc['financial_flags']) if acc['financial_flags'] else 'None'
+            })
         df_risks = pd.DataFrame(risk_data)
         st.dataframe(df_risks, use_container_width=True)
         
@@ -909,6 +1003,9 @@ elif view_mode == "Account Lookup":
         
     if account_id and account_id in cyber_df['account_id'].values:
         risk_score = detector.calculate_risk_score(account_id)
+        repo.upsert_account_risk(account_id, int(risk_score))
+        account_row = repo.get_account(account_id) or repo.ensure_account(account_id)
+        account_status = account_row.get("status", "ACTIVE")
         cyber_flags = detector.detect_cyber_anomalies(account_id)
         fin_flags = detector.detect_financial_velocity(account_id)
         
@@ -916,12 +1013,15 @@ elif view_mode == "Account Lookup":
         
         with col1:
             st.metric("Risk Score", f"{risk_score}/100")
+            st.markdown(f"Status: {status_badge(account_status)}", unsafe_allow_html=True)
             if risk_score >= 70:
                 st.markdown('<div class="alert-critical">🚨 CRITICAL RISK DETECTED</div>', unsafe_allow_html=True)
             elif risk_score >= 50:
                 st.warning("⚠️ HIGH RISK")
             else:
                 st.success("✅ LOW RISK")
+            if account_status == "FROZEN":
+                st.error("Account Frozen - Transactions Blocked")
         
         with col2:
             st.markdown("**Cyber Flags:**")
@@ -938,28 +1038,51 @@ elif view_mode == "Account Lookup":
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if account_id in st.session_state.frozen_accounts:
-                if st.button("🔓 Unfreeze Account", type="primary"):
-                    st.session_state.frozen_accounts.remove(account_id)
-                    st.rerun()
+            if account_status == "FROZEN":
+                st.button("🛑 Freeze Account", disabled=True, use_container_width=True)
                 st.error("❄️ Account is currently frozen.")
-            else:
-                if st.button("🛑 Freeze Account"):
-                    st.session_state.frozen_accounts.add(account_id)
+            elif risk_score >= 70:
+                if st.button("🛑 Freeze Account", use_container_width=True):
+                    freeze_response = safe_post_json(
+                        f"{backend_base_url}/accounts/{account_id}/freeze",
+                        payload={"reason": "High risk account from CyberFin dashboard", "performed_by": "dashboard_user"},
+                    )
+                    if freeze_response is not None and freeze_response.status_code < 300:
+                        st.toast("Account frozen")
+                    else:
+                        repo.freeze_account(account_id, reason="High risk account from CyberFin dashboard", performed_by="dashboard_user")
+                        st.toast("Account frozen")
                     st.rerun()
+            else:
+                st.button("🛑 Freeze Account", disabled=True, use_container_width=True)
+                st.caption("Freeze available only for risk score >= 70")
         
         with col2:
-            sar_data = pd.DataFrame([{'Account_ID': account_id, 'Risk_Score': risk_score, 'Cyber_Flags': ', '.join(cyber_flags), 'Financial_Flags': ', '.join(fin_flags), 'Report_Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}])
-            st.download_button(
-                label="📋 Download SAR CSV",
-                data=sar_data.to_csv(index=False),
-                file_name=f"SAR_{account_id}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+            if account_status == "FROZEN":
+                st.button("📋 Download SAR CSV", disabled=True, use_container_width=True)
+            else:
+                sar_data = pd.DataFrame([{'Account_ID': account_id, 'Risk_Score': risk_score, 'Cyber_Flags': ', '.join(cyber_flags), 'Financial_Flags': ', '.join(fin_flags), 'Report_Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}])
+                st.download_button(
+                    label="📋 Download SAR CSV",
+                    data=sar_data.to_csv(index=False),
+                    file_name=f"SAR_{account_id}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
             
         with col3:
-            if st.button("📞 Contact Customer"):
-                st.success("📧 Alert sent to account holder!")
+            if account_status == "FROZEN":
+                if st.button("💳 Attempt Transaction", use_container_width=True):
+                    txn_attempt = safe_post_json(
+                        f"{backend_base_url}/transactions/process",
+                        payload={"from_account": account_id, "to_account": "BEN_TEST_001", "amount": 1200.0},
+                    )
+                    if txn_attempt is not None and txn_attempt.status_code == 403:
+                        st.error("Transaction blocked: Account frozen")
+                    else:
+                        st.warning("Could not validate blocked transaction. Ensure backend is running.")
+            else:
+                if st.button("📞 Contact Customer"):
+                    st.success("📧 Alert sent to account holder!")
 
         st.markdown("---")
         
