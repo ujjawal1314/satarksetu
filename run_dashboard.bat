@@ -1,3 +1,3 @@
 @echo off
 echo Starting CyberFin Fusion Dashboard...
-streamlit run dashboard.py
+streamlit run dashboard.py --server.maxUploadSize=200

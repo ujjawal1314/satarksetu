@@ -1,33 +1,70 @@
+"""
+Enhanced Detection Engine with Neo4j Support
+Hybrid implementation supporting both Neo4j and NetworkX
+"""
+
 import pandas as pd
-import networkx as nx
 from datetime import datetime, timedelta
 from collections import defaultdict
-import community.community_louvain as community_louvain
+from graph_database import GraphDatabaseFactory, GraphDatabaseInterface, NetworkXGraphDatabase
 
-class CyberFinDetector:
-    def __init__(self, cyber_df, txn_df):
+
+class CyberFinDetectorNeo4j:
+    """Detection engine with graph database support"""
+    
+    def __init__(self, cyber_df, txn_df, use_neo4j=True):
         self.cyber_df = cyber_df
         self.txn_df = txn_df
         self.cyber_df['timestamp'] = pd.to_datetime(self.cyber_df['timestamp'])
         self.txn_df['timestamp'] = pd.to_datetime(self.txn_df['timestamp'])
-        self.graph = nx.Graph()
+        
+        # Initialize graph database (Neo4j or NetworkX)
+        self.db = GraphDatabaseFactory.create(use_neo4j=use_neo4j)
         self.risk_scores = {}
         
+        print(f"Detector initialized with {self.db.get_stats()['database']}")
+    
     def build_graph(self):
-        """Build network graph connecting accounts, devices, IPs, and beneficiaries"""
+        """Build network graph in database"""
+        print("Building graph in database...")
+        
+        # Clear existing data
+        self.db.clear()
+        
         # Add account-device edges
         for _, row in self.cyber_df.iterrows():
-            self.graph.add_edge(row['account_id'], f"DEV_{row['device']}", type='device')
-            self.graph.add_edge(row['account_id'], f"IP_{row['ip']}", type='ip')
+            # Add nodes
+            self.db.add_node(row['account_id'], "Account")
+            self.db.add_node(f"DEV_{row['device']}", "Device", device_type=row['device'])
+            self.db.add_node(f"IP_{row['ip']}", "IP", ip_address=row['ip'], location=row['location'])
+            
+            # Add edges
+            self.db.add_edge(row['account_id'], f"DEV_{row['device']}", "USES_DEVICE")
+            self.db.add_edge(row['account_id'], f"IP_{row['ip']}", "ACCESSED_FROM")
         
         # Add account-beneficiary edges
         for _, row in self.txn_df.iterrows():
-            self.graph.add_edge(row['account_id'], row['beneficiary'], 
-                              type='transaction', amount=row['amount'])
+            # Add nodes
+            self.db.add_node(row['account_id'], "Account")
+            self.db.add_node(row['beneficiary'], "Beneficiary")
+            
+            # Add edge with transaction details
+            self.db.add_edge(
+                row['account_id'], 
+                row['beneficiary'], 
+                "SENT_TO",
+                amount=float(row['amount']),
+                timestamp=str(row['timestamp']),
+                txn_type=row['type']
+            )
         
-        print(f"[DEBUG] Graph built: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges")
-        print(f"Graph built: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges")
+        # Get statistics
+        stats = self.db.get_stats()
+        print(f"[DEBUG] Graph built: {stats['nodes']} nodes, {stats['edges']} edges")
+        print(f"Graph built: {stats['nodes']} nodes, {stats['edges']} edges using {stats['database']}")
         
+        return stats
+    
     def detect_cyber_anomalies(self, account_id, time_window_minutes=60):
         """Detect suspicious cyber activity patterns"""
         recent_time = datetime.now() - timedelta(minutes=time_window_minutes)
@@ -70,8 +107,10 @@ class CyberFinDetector:
     
     def detect_mule_rings(self):
         """Detect connected mule networks using community detection"""
-        # Find communities (rings) in the graph
-        communities = community_louvain.best_partition(self.graph)
+        print("Detecting mule rings using graph database...")
+        
+        # Use graph database community detection
+        communities = self.db.detect_communities()
         
         # Group accounts by community
         community_accounts = defaultdict(list)
@@ -86,7 +125,7 @@ class CyberFinDetector:
                 # Check if they share beneficiaries
                 shared_beneficiaries = set()
                 for acc in accounts:
-                    neighbors = list(self.graph.neighbors(acc))
+                    neighbors = self.db.get_neighbors(acc)
                     beneficiaries = [n for n in neighbors if n.startswith('BEN_')]
                     shared_beneficiaries.update(beneficiaries)
                 
@@ -98,6 +137,7 @@ class CyberFinDetector:
                         'size': len(accounts)
                     })
         
+        print(f"Found {len(suspicious_rings)} suspicious rings")
         return suspicious_rings
     
     def calculate_risk_score(self, account_id):
@@ -113,9 +153,8 @@ class CyberFinDetector:
         score += len(fin_flags) * 10
         
         # Network centrality score (30 points max)
-        if account_id in self.graph:
-            degree = self.graph.degree(account_id)
-            score += min(degree * 2, 30)
+        degree = self.db.get_node_degree(account_id)
+        score += min(degree * 2, 30)
         
         self.risk_scores[account_id] = min(score, 100)
         return self.risk_scores[account_id]
@@ -134,14 +173,56 @@ class CyberFinDetector:
                 })
         
         return sorted(flagged, key=lambda x: x['risk_score'], reverse=True)
+    
+    def get_networkx_graph(self):
+        """Get NetworkX graph for visualization (compatibility method)"""
+        if isinstance(self.db, NetworkXGraphDatabase):
+            return self.db.get_networkx_graph()
+        else:
+            # If using Neo4j, export to NetworkX for visualization
+            import networkx as nx
+            G = nx.Graph()
+            
+            # This is a simplified export - in production you'd query Neo4j
+            # For now, rebuild from dataframes
+            for _, row in self.cyber_df.iterrows():
+                G.add_edge(row['account_id'], f"DEV_{row['device']}", type='device')
+                G.add_edge(row['account_id'], f"IP_{row['ip']}", type='ip')
+            
+            for _, row in self.txn_df.iterrows():
+                G.add_edge(row['account_id'], row['beneficiary'], 
+                          type='transaction', amount=row['amount'])
+            
+            return G
+    
+    def close(self):
+        """Close database connection"""
+        if hasattr(self.db, 'close'):
+            self.db.close()
+
 
 if __name__ == "__main__":
-    # Test the detector
+    # Set UTF-8 encoding for console output (Windows compatibility)
+    import sys
+    if sys.platform == 'win32':
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    
+    # Test the detector with graph database
+    print("\n=== Testing CyberFin Detector with Graph Database ===\n")
+    
     cyber = pd.read_csv('cyber_events.csv')
     txns = pd.read_csv('transactions.csv')
     
-    detector = CyberFinDetector(cyber, txns)
-    detector.build_graph()
+    # Try Neo4j first, fallback to NetworkX
+    detector = CyberFinDetectorNeo4j(cyber, txns, use_neo4j=True)
+    stats = detector.build_graph()
+    
+    print(f"\n📊 Graph Statistics:")
+    print(f"   Database: {stats['database']}")
+    print(f"   Nodes: {stats['nodes']:,}")
+    print(f"   Edges: {stats['edges']:,}")
+    print(f"   Node Types: {stats['node_types']}")
     
     print("\n🔍 Detecting mule rings...")
     rings = detector.detect_mule_rings()
@@ -153,3 +234,7 @@ if __name__ == "__main__":
     flagged = detector.get_flagged_accounts(threshold=40)
     for acc in flagged[:10]:
         print(f"  {acc['account_id']}: Risk={acc['risk_score']} | {acc['cyber_flags']} | {acc['financial_flags']}")
+    
+    # Close connection
+    detector.close()
+    print("\n✅ Test complete!")

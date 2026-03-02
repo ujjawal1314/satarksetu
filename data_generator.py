@@ -31,6 +31,20 @@ for acc in cyber['account_id'].unique()[:800]:
         })
 
 txns_df = pd.DataFrame(txns)
+
+# ===== OPTIONAL: Blend with realistic PaySim/SAML-D data =====
+# Uncomment to add small realistic dataset blend (requires Kaggle datasets)
+try:
+    # Try to load PaySim or SAML-D dataset if available
+    # realistic_data = pd.read_csv('paysim_sample.csv')  # User must download separately
+    # txns_df = pd.concat([txns_df, realistic_data.head(100)], ignore_index=True)
+    # print("✅ Blended with realistic PaySim data")
+    pass
+except Exception as e:
+    # Silently continue with mock data only
+    pass
+# ===== END OPTIONAL BLEND =====
+
 cyber.to_csv('cyber_events.csv', index=False)
 txns_df.to_csv('transactions.csv', index=False)
 print("✅ Mock data generated! 20k events ready.")

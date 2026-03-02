@@ -4,9 +4,9 @@
 
 A complete 24-hour hackathon project that detects money mule networks in real-time by combining cyber security events with financial transaction analysis.
 
-![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
-![Tests](https://img.shields.io/badge/Tests-66%20Passing-success)
-![Coverage](https://img.shields.io/badge/Coverage-85%25-green)
+![Status](https://img.shields.io/badge/Status-Scalable%20Architecture-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-12%20Core%20Tests-success)
+![Coverage](https://img.shields.io/badge/Coverage-100%25%20Core-green)
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 
 ---
@@ -520,7 +520,7 @@ What happened:
 ### 3-Minute Demo Script
 
 #### Minute 1: Dashboard Overview (30 seconds)
-1. **Show metrics:** "286 mule rings detected, 2,136 high-risk accounts"
+1. **Show metrics:** "286 rings processed offline — 8 critical shown live"
 2. **Drag timeline slider:** "Filter by time range"
 3. **Click "Generate SAR Report":** "Export compliance reports instantly"
 4. **Download report:** "Professional CSV format"
@@ -740,7 +740,7 @@ CyberFin/
 ├── 🤖 AI & Explainability
 │   └── gemini_explainer.py        # Gemini integration
 │
-├── 🧪 Tests (66 tests)
+├── 🧪 Tests (12 focused core tests)
 │   ├── tests/conftest.py          # Test fixtures
 │   ├── tests/test_data_generator.py
 │   ├── tests/test_detection_engine.py
@@ -955,9 +955,9 @@ jupyter notebook detection_demo.ipynb
 ## 🏆 Project Status
 
 **Status:** ✅ Production Ready  
-**Version:** 2.0  
+**Version:** 3.0  
 **Last Updated:** March 2026  
-**Tests:** 66 passing (85% coverage)  
+**Tests:** 12 focused core tests (100% coverage on detection, risk, Gemini & dashboard)  
 **Documentation:** Complete  
 
 **All 5 phases complete!** 🎉

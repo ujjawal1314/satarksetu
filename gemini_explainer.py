@@ -1,6 +1,15 @@
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+from functools import lru_cache
+import json
+import random
+import sys
+
+# Fix Windows console encoding for emoji support
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 load_dotenv()
 
@@ -10,9 +19,12 @@ class GeminiExplainer:
         if api_key and api_key != 'your_api_key_here':
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel('gemini-1.5-flash')
+                self.model = genai.GenerativeModel(
+                    'gemini-1.5-flash',
+                    generation_config={"response_mime_type": "application/json"}
+                )
                 self.api_available = True
-                print("✅ Gemini API configured successfully")
+                print("✅ Gemini API configured successfully with JSON mode")
             except Exception as e:
                 self.model = None
                 self.api_available = False
@@ -20,279 +32,423 @@ class GeminiExplainer:
         else:
             self.model = None
             self.api_available = False
-            print("⚠️ GEMINI_API_KEY not found or not configured. Using fallback explanations.")
+            print("⚠️ GEMINI_API_KEY not found. Using fallback mode. See GEMINI_API_SETUP.md")
     
-    def explain_mule_pattern(self, account_data, cyber_flags, fin_flags, ring_info=None):
-        """Generate human-readable explanation of mule behavior"""
+    @lru_cache(maxsize=128)
+    def explain_ring(self, ring_id, ring_size, beneficiaries_str, risk_score):
+        """Explain how a mule ring operates - LIVE GEMINI GENERATION #1"""
         
         if not self.api_available:
-            return self._fallback_explanation(account_data, cyber_flags, fin_flags, ring_info)
+            return self._fallback_ring_explanation(ring_id, ring_size, beneficiaries_str)
         
-        prompt = f"""You are a financial crime analyst. Explain this suspicious account pattern in simple terms:
+        prompt = f"""Analyze this money mule ring and return JSON:
 
-Account: {account_data['account_id']}
-Risk Score: {account_data.get('risk_score', 'N/A')}/100
+Ring ID: {ring_id}
+Size: {ring_size} accounts
+Shared Beneficiaries: {beneficiaries_str}
+Risk Score: {risk_score}/100
 
-Cyber Security Flags:
-{', '.join(cyber_flags) if cyber_flags else 'None'}
+Return JSON with these fields:
+{{
+  "operation_summary": "2-3 sentences on how this ring operates",
+  "coordination_pattern": "How accounts are coordinated",
+  "suspicion_reason": "Why this is highly suspicious",
+  "recommended_action": "Specific action for investigators"
+}}
 
-Financial Flags:
-{', '.join(fin_flags) if fin_flags else 'None'}
-
-{f"Part of Ring: {ring_info['size']} accounts sharing beneficiaries {ring_info['beneficiaries']}" if ring_info else ""}
-
-Provide:
-1. What this pattern indicates (2-3 sentences)
-2. Likely victim scenario (how they were recruited - fake job, romance scam, etc.)
-3. Recommended action
-
-Keep it under 150 words, direct and actionable."""
+Keep each field under 50 words."""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            data = json.loads(response.text)
+            
+            result = f"""**🔗 Ring {ring_id} Analysis ({ring_size} accounts)**
+
+**Operation**: {data.get('operation_summary', 'N/A')}
+
+**Coordination**: {data.get('coordination_pattern', 'N/A')}
+
+**Why Suspicious**: {data.get('suspicion_reason', 'N/A')}
+
+**Action**: {data.get('recommended_action', 'N/A')}"""
+            return result
+            
         except Exception as e:
-            print(f"Gemini API error: {e}")
-            return self._fallback_explanation(account_data, cyber_flags, fin_flags, ring_info)
+            print(f"Gemini API error in explain_ring: {e}")
+            return self._fallback_ring_explanation(ring_id, ring_size, beneficiaries_str)
     
-    def explain_ring_structure(self, ring_data):
-        """Explain how a mule ring operates"""
+    @lru_cache(maxsize=128)
+    def generate_victim_ad(self, account_id, risk_score):
+        """Generate realistic fake job ad that recruited this victim - LIVE GEMINI GENERATION #2"""
         
         if not self.api_available:
-            return self._fallback_ring_explanation(ring_data)
+            return self._fallback_victim_ad(account_id)
         
-        prompt = f"""Explain this money mule ring in simple terms:
+        prompt = f"""Generate a realistic fake job ad that likely recruited this money mule victim.
 
-Ring Size: {ring_data['size']} accounts
-Shared Beneficiaries: {len(ring_data.get('beneficiaries', []))}
-Risk Score: {ring_data.get('risk_score', 'N/A')}/100
+Account: {account_id}
+Risk: {risk_score}/100
 
-Explain:
-1. How this ring likely operates
-2. Coordination patterns
-3. Why it's suspicious
-4. Recommended action for the entire ring
-
-Keep it under 120 words."""
+Return JSON:
+{{
+  "ad_text": "The fake job ad text (40-60 words, include emojis, make it look like Instagram/WhatsApp)",
+  "platform": "Where victim saw it (Instagram/WhatsApp/Facebook/Telegram)",
+  "promise": "What was promised (money amount, easy work, etc)",
+  "victim_profile": "Likely victim demographic (student/unemployed/etc)",
+  "reality": "What actually happened (1 sentence)"
+}}"""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            data = json.loads(response.text)
+            
+            result = f"""**🎭 Likely Recruitment Scenario for {account_id}**
+
+**Platform**: {data.get('platform', 'Social Media')}
+
+**The Fake Ad They Saw**:
+_{data.get('ad_text', 'N/A')}_
+
+**Promise**: {data.get('promise', 'Easy money')}
+
+**Victim Profile**: {data.get('victim_profile', 'Vulnerable individual')}
+
+**Reality**: {data.get('reality', 'Account used for money laundering, now faces criminal charges.')}
+
+⚠️ **71% of Gen Z unaware this leads to criminal record**"""
+            return result
+            
         except Exception as e:
-            return self._fallback_ring_explanation(ring_data)
+            print(f"Gemini API error in generate_victim_ad: {e}")
+            return self._fallback_victim_ad(account_id)
     
-    def generate_victim_scenario(self, account_data):
-        """Generate likely victim recruitment scenario"""
+    @lru_cache(maxsize=128)
+    def generate_sar_narrative(self, account_id, risk_score, cyber_flags_str, fin_flags_str):
+        """Generate professional SAR narrative - LIVE GEMINI GENERATION #3"""
         
         if not self.api_available:
-            return self._fallback_victim_scenario(account_data)
+            return self._fallback_sar_narrative(account_id, risk_score, cyber_flags_str, fin_flags_str)
         
-        prompt = f"""Generate a realistic victim recruitment scenario for this account:
+        prompt = f"""Write a professional Suspicious Activity Report (SAR) narrative.
 
-Account: {account_data['account_id']}
-Risk Score: {account_data.get('risk_score', 50)}/100
+Account: {account_id}
+Risk: {risk_score}/100
+Cyber Flags: {cyber_flags_str}
+Financial Flags: {fin_flags_str}
 
-Create a brief story (80-100 words) about how this person was likely recruited as a money mule:
-- What fake job ad or scam they saw
-- What promises were made
-- Why they didn't realize it was illegal
-- Their likely demographic (student, unemployed, etc.)
+Return JSON:
+{{
+  "summary": "Executive summary (2 sentences)",
+  "timeline": "Timeline of suspicious events (3-4 bullet points)",
+  "red_flags": "Key red flags identified (3-4 items)",
+  "basis": "Legal basis for suspicion (1-2 sentences)",
+  "recommendation": "Recommended action"
+}}
 
-Make it realistic and educational."""
+Use formal regulatory language."""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            data = json.loads(response.text)
+            
+            result = f"""**📋 SUSPICIOUS ACTIVITY REPORT - {account_id}**
+
+**SUMMARY**
+{data.get('summary', 'N/A')}
+
+**TIMELINE**
+{data.get('timeline', 'N/A')}
+
+**RED FLAGS IDENTIFIED**
+{data.get('red_flags', 'N/A')}
+
+**BASIS FOR SUSPICION**
+{data.get('basis', 'N/A')}
+
+**RECOMMENDATION**
+{data.get('recommendation', 'Freeze account and investigate.')}
+
+---
+*Report generated: {self._get_timestamp()}*"""
+            return result
+            
         except Exception as e:
-            return self._fallback_victim_scenario(account_data)
+            print(f"Gemini API error in generate_sar_narrative: {e}")
+            return self._fallback_sar_narrative(account_id, risk_score, cyber_flags_str, fin_flags_str)
     
-    def suggest_investigation_steps(self, account_data, flags):
-        """Suggest next steps for investigators"""
+    @lru_cache(maxsize=128)
+    def explain_single_account(self, account_id, risk_score, cyber_flags_str, fin_flags_str):
+        """Explain single account suspicious pattern - LIVE GEMINI GENERATION #4"""
         
         if not self.api_available:
-            return self._fallback_investigation_steps(account_data, flags)
+            return self._fallback_single_account(account_id, risk_score, cyber_flags_str, fin_flags_str)
         
-        prompt = f"""As a financial crime investigator, suggest investigation steps for:
+        prompt = f"""Analyze this suspicious account for financial crime investigators.
 
-Account: {account_data['account_id']}
-Risk: {account_data.get('risk_score', 50)}/100
-Flags: {', '.join(flags[:5])}
+Account: {account_id}
+Risk Score: {risk_score}/100
+Cyber Flags: {cyber_flags_str}
+Financial Flags: {fin_flags_str}
 
-Provide 4-5 specific investigation steps in order of priority.
-Keep it under 100 words, actionable and specific."""
+Return JSON:
+{{
+  "pattern_type": "Type of suspicious pattern (compromised/recruited mule/willing participant)",
+  "explanation": "What the pattern indicates (2-3 sentences)",
+  "victim_scenario": "How they were likely recruited (2 sentences)",
+  "action": "Recommended immediate action"
+}}"""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            data = json.loads(response.text)
+            
+            result = f"""**🔍 Account Analysis: {account_id}**
+
+**Pattern Type**: {data.get('pattern_type', 'Suspicious Activity')}
+
+**What This Indicates**:
+{data.get('explanation', 'N/A')}
+
+**Likely Recruitment**:
+{data.get('victim_scenario', 'N/A')}
+
+**Recommended Action**: {data.get('action', 'Investigate immediately')}"""
+            return result
+            
         except Exception as e:
-            return self._fallback_investigation_steps(account_data, flags)
+            print(f"Gemini API error in explain_single_account: {e}")
+            return self._fallback_single_account(account_id, risk_score, cyber_flags_str, fin_flags_str)
     
-    def generate_sar_narrative(self, account_data, cyber_flags, fin_flags):
-        """Generate SAR (Suspicious Activity Report) narrative"""
+    @lru_cache(maxsize=128)
+    def generate_timeline_summary(self, total_events, total_txns, high_risk_count, rings_count):
+        """Generate timeline summary of detection results - LIVE GEMINI GENERATION #5"""
         
         if not self.api_available:
-            return self._fallback_sar_narrative(account_data, cyber_flags, fin_flags)
+            return self._fallback_timeline_summary(total_events, total_txns, high_risk_count, rings_count)
         
-        prompt = f"""Write a professional SAR narrative for:
+        prompt = f"""Summarize this 24-hour financial crime detection analysis.
 
-Account: {account_data['account_id']}
-Risk Score: {account_data.get('risk_score', 50)}/100
-Cyber Flags: {', '.join(cyber_flags)}
-Financial Flags: {', '.join(fin_flags)}
+Total Events: {total_events}
+Total Transactions: {total_txns}
+High-Risk Accounts: {high_risk_count}
+Mule Rings: {rings_count}
 
-Write in formal regulatory language:
-1. Summary of suspicious activity
-2. Timeline of events
-3. Red flags identified
-4. Basis for suspicion
-
-Keep it under 150 words, professional tone."""
+Return JSON:
+{{
+  "executive_summary": "2-3 sentence overview of findings",
+  "key_insights": "3-4 bullet points of key insights",
+  "threat_level": "Overall threat level assessment",
+  "next_steps": "Priority actions for next 24 hours"
+}}"""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            data = json.loads(response.text)
+            
+            result = f"""**📊 24-Hour Detection Summary**
+
+**Executive Summary**:
+{data.get('executive_summary', 'N/A')}
+
+**Key Insights**:
+{data.get('key_insights', 'N/A')}
+
+**Threat Level**: {data.get('threat_level', 'Elevated')}
+
+**Next 24 Hours Priority**:
+{data.get('next_steps', 'Continue monitoring')}"""
+            return result
+            
         except Exception as e:
-            return self._fallback_sar_narrative(account_data, cyber_flags, fin_flags)
+            print(f"Gemini API error in generate_timeline_summary: {e}")
+            return self._fallback_timeline_summary(total_events, total_txns, high_risk_count, rings_count)
     
-    def explain_prevention_tips(self, scenario_type="general"):
-        """Generate prevention tips for potential victims"""
+    @lru_cache(maxsize=128)
+    def freeze_impact_simulation(self, ring_id, ring_size, estimated_amount):
+        """Simulate impact of freezing a ring - LIVE GEMINI GENERATION #6"""
         
         if not self.api_available:
-            return self._fallback_prevention_tips(scenario_type)
+            return self._fallback_freeze_impact(ring_id, ring_size, estimated_amount)
         
-        prompt = f"""Generate 5 prevention tips to help people avoid becoming money mules.
+        prompt = f"""Simulate the impact of freezing this money mule ring.
 
-Focus on: {scenario_type}
+Ring ID: {ring_id}
+Accounts: {ring_size}
+Estimated Daily Volume: ₹{estimated_amount:,}
 
-Make them:
-- Practical and actionable
-- Easy to understand
-- Specific warning signs
-- What to do if approached
-
-Keep it under 120 words."""
+Return JSON:
+{{
+  "immediate_impact": "What happens immediately when frozen",
+  "funds_saved": "Estimated funds that will be saved/recovered",
+  "disruption_level": "Impact on criminal network (High/Medium/Low)",
+  "victim_impact": "Impact on recruited victims",
+  "next_actions": "What investigators should do next"
+}}"""
 
         try:
             response = self.model.generate_content(prompt)
-            return response.text
+            data = json.loads(response.text)
+            
+            result = f"""**🛑 Freeze Impact Simulation - Ring {ring_id}**
+
+**Immediate Impact**:
+{data.get('immediate_impact', 'N/A')}
+
+**Estimated Funds Saved**: {data.get('funds_saved', 'Significant amount')}
+
+**Network Disruption**: {data.get('disruption_level', 'High')}
+
+**Victim Impact**:
+{data.get('victim_impact', 'Victims will be contacted and educated')}
+
+**Next Actions**:
+{data.get('next_actions', 'File SAR and investigate beneficiaries')}"""
+            return result
+            
         except Exception as e:
-            return self._fallback_prevention_tips(scenario_type)
+            print(f"Gemini API error in freeze_impact_simulation: {e}")
+            return self._fallback_freeze_impact(ring_id, ring_size, estimated_amount)
     
-    def _fallback_explanation(self, account_data, cyber_flags, fin_flags, ring_info):
-        """Fallback explanation when Gemini is unavailable"""
-        
-        explanation = f"**Account {account_data['account_id']} Analysis**\n\n"
-        
-        # Pattern detection
-        if 'malware_detected' in cyber_flags or 'password_reset' in cyber_flags:
-            explanation += "🚨 **Compromised Account Pattern**: "
-            explanation += "Account shows signs of unauthorized access (malware/password reset). "
-        
-        if 'new_device' in cyber_flags and 'foreign_ip' in cyber_flags:
-            explanation += "Accessed from new device and foreign location. "
-        
-        if 'rapid_transactions' in fin_flags:
-            explanation += "\n\n💰 **Financial Red Flags**: Multiple rapid transactions detected. "
-        
-        if 'near_threshold_amount' in fin_flags:
-            explanation += "Amounts just below reporting thresholds (structuring). "
-        
-        if ring_info:
-            explanation += f"\n\n🔗 **Network Analysis**: Part of a {ring_info['size']}-account ring "
-            explanation += f"sharing beneficiaries {', '.join(ring_info['beneficiaries'][:2])}. "
-        
-        # Victim scenario
-        explanation += "\n\n**Likely Scenario**: "
-        if len(cyber_flags) > 2:
-            explanation += "Account holder likely victim of phishing/malware. "
-        else:
-            explanation += "Possible recruited mule (fake job offer, 'easy money' promise). "
-        
-        explanation += "Common tactics: Instagram/WhatsApp job ads, romance scams, or 'work from home' schemes."
-        
-        # Action
-        explanation += "\n\n**Recommended Action**: "
-        if account_data.get('risk_score', 0) >= 70:
-            explanation += "🛑 FREEZE account immediately. Block pending transactions. File SAR."
-        elif account_data.get('risk_score', 0) >= 50:
-            explanation += "⚠️ Flag for manual review. Contact account holder. Monitor closely."
-        else:
-            explanation += "📋 Continue monitoring. Document for compliance."
-        
-        return explanation
+    # ===== FALLBACK FUNCTIONS =====
     
-    def _fallback_ring_explanation(self, ring_data):
-        """Fallback ring explanation"""
-        explanation = f"**Ring Analysis ({ring_data['size']} accounts)**\n\n"
-        explanation += "🔗 **Coordination Pattern**: Multiple accounts sharing the same beneficiaries, "
-        explanation += "indicating coordinated activity typical of mule recruitment networks.\n\n"
-        explanation += "**How It Operates**: Recruiter finds victims (often through fake job ads), "
-        explanation += "convinces them to receive and forward money, all funds flow to same beneficiaries.\n\n"
-        explanation += "**Recommended Action**: Investigate entire ring, freeze all accounts, "
-        explanation += "file consolidated SAR, contact account holders (likely victims)."
-        return explanation
+    def _fallback_ring_explanation(self, ring_id, ring_size, beneficiaries_str):
+        return f"""**🔗 Ring {ring_id} Analysis ({ring_size} accounts)**
+
+**Operation**: Multiple accounts coordinated to receive and forward funds to same beneficiaries ({beneficiaries_str}). Classic mule recruitment network.
+
+**Coordination**: Accounts show synchronized activity patterns - likely recruited by same operator through fake job ads or social media scams.
+
+**Why Suspicious**: {ring_size} unrelated accounts sharing beneficiaries is statistically impossible without coordination. Indicates organized money laundering operation.
+
+**Action**: Freeze all {ring_size} accounts immediately. File consolidated SAR. Investigate beneficiaries. Contact account holders (likely victims)."""
     
-    def _fallback_victim_scenario(self, account_data):
-        """Fallback victim scenario"""
-        scenarios = [
-            "Saw Instagram ad: '💰 Earn ₹15,000/week from home! No experience needed. Just receive and forward payments.' Thought it was legitimate payment processing job. Didn't realize moving money for strangers is illegal.",
-            "Responded to WhatsApp job offer: 'Work from home - Financial Assistant. ₹20k/month.' Was told to open account and 'process transactions.' Believed it was real remote work.",
-            "Met someone on dating app who asked for 'help with business transactions.' Promised relationship and money. Classic romance scam turned mule recruitment.",
-            "Student saw Facebook post: 'Easy money for students! Just let us use your account for payments.' Needed money for tuition. Didn't know it was money laundering.",
-            "Unemployed person desperate for income. Recruiter promised ₹500 per transaction. Seemed like easy money. Unaware of criminal consequences."
+    def _fallback_victim_ad(self, account_id):
+        ads = [
+            "💰 Earn ₹15,000/week from home! No experience needed. Just receive & transfer payments. Apply now! 📱",
+            "🏠 Work From Home - Payment Processing Agent. ₹20k/month guaranteed. Easy work, flexible hours! DM for details.",
+            "💼 Urgent Hiring: Financial Assistant. Handle transactions from home. ₹18k/week + bonus! Students welcome!",
+            "📱 Instagram Opportunity: Be a payment coordinator. ₹25k/month. No investment required!",
+            "🎯 Part-Time Job: Process payments for international company. ₹12k/week. Work from anywhere!"
         ]
-        import random
-        return f"**Likely Recruitment Scenario:**\n\n{random.choice(scenarios)}\n\n**Reality**: 71% of Gen Z unaware this leads to criminal record. Account now frozen, person faces prosecution."
+        
+        return f"""**🎭 Likely Recruitment Scenario for {account_id}**
+
+**Platform**: Instagram/WhatsApp
+
+**The Fake Ad They Saw**:
+_{random.choice(ads)}_
+
+**Promise**: Easy money for simple work, no experience needed
+
+**Victim Profile**: Likely student or unemployed person desperate for income
+
+**Reality**: Account used for money laundering. Victim now faces criminal charges and frozen account.
+
+⚠️ **71% of Gen Z unaware this leads to criminal record**"""
     
-    def _fallback_investigation_steps(self, account_data, flags):
-        """Fallback investigation steps"""
-        steps = f"**Investigation Steps for {account_data['account_id']}:**\n\n"
-        steps += "1. **Freeze Account**: Immediately block all pending transactions\n"
-        steps += "2. **Contact Holder**: Call account holder, assess if victim or willing participant\n"
-        steps += "3. **Trace Beneficiaries**: Identify and investigate all receiving accounts\n"
-        steps += "4. **Review Timeline**: Map all transactions and cyber events chronologically\n"
-        steps += "5. **File SAR**: Submit Suspicious Activity Report with all evidence\n"
-        steps += "6. **Check Network**: Identify other accounts in same ring\n"
-        steps += "7. **Preserve Evidence**: Document all findings for potential prosecution"
-        return steps
+    def _fallback_sar_narrative(self, account_id, risk_score, cyber_flags_str, fin_flags_str):
+        return f"""**📋 SUSPICIOUS ACTIVITY REPORT - {account_id}**
+
+**SUMMARY**
+Account {account_id} exhibits multiple indicators consistent with money mule activity. Risk score: {risk_score}/100. Pattern suggests recruited victim used for money laundering.
+
+**TIMELINE**
+• Cyber security flags detected: {cyber_flags_str or 'None'}
+• Financial velocity flags: {fin_flags_str or 'None'}
+• Activity consistent with compromised or recruited account
+• Rapid fund movement following suspicious cyber events
+
+**RED FLAGS IDENTIFIED**
+• Multiple cyber security anomalies indicating compromise
+• Transaction patterns consistent with structuring (amounts just below thresholds)
+• Rapid transaction velocity inconsistent with normal account behavior
+• Connections to known suspicious beneficiaries
+
+**BASIS FOR SUSPICION**
+Pattern consistent with money mule recruitment. Account shows signs of compromise followed by rapid fund movement. Transactions structured to avoid reporting thresholds. Likely victim of recruitment scam, but account actively used for money laundering.
+
+**RECOMMENDATION**
+Freeze account immediately. Block all pending transactions. Investigate beneficiaries. Contact account holder to assess if victim or willing participant. File with FinCEN.
+
+---
+*Report generated: {self._get_timestamp()}*"""
     
-    def _fallback_sar_narrative(self, account_data, cyber_flags, fin_flags):
-        """Fallback SAR narrative"""
-        narrative = f"**SUSPICIOUS ACTIVITY REPORT - {account_data['account_id']}**\n\n"
-        narrative += f"**Summary**: Account exhibits multiple indicators consistent with money mule activity. "
-        narrative += f"Risk score: {account_data.get('risk_score', 50)}/100.\n\n"
-        narrative += f"**Cyber Security Indicators**: {', '.join(cyber_flags) if cyber_flags else 'None detected'}.\n\n"
-        narrative += f"**Financial Indicators**: {', '.join(fin_flags) if fin_flags else 'None detected'}.\n\n"
-        narrative += "**Basis for Suspicion**: Pattern consistent with recruited money mule. "
-        narrative += "Account shows signs of compromise followed by rapid fund movement. "
-        narrative += "Transactions structured to avoid reporting thresholds. "
-        narrative += "Likely victim of recruitment scam, but account used for money laundering.\n\n"
-        narrative += "**Recommendation**: Freeze account, investigate beneficiaries, contact account holder."
-        return narrative
+    def _fallback_single_account(self, account_id, risk_score, cyber_flags_str, fin_flags_str):
+        return f"""**🔍 Account Analysis: {account_id}**
+
+**Pattern Type**: Likely Recruited Money Mule
+
+**What This Indicates**:
+Account shows {risk_score}/100 risk score with flags: {cyber_flags_str}, {fin_flags_str}. Pattern consistent with recruited victim - account compromised or willingly provided for "easy money" job offer.
+
+**Likely Recruitment**:
+Victim probably responded to fake job ad on social media promising easy income for "payment processing." Didn't realize moving money for strangers is illegal money laundering.
+
+**Recommended Action**: Freeze account, contact holder, file SAR, investigate beneficiaries"""
     
-    def _fallback_prevention_tips(self, scenario_type):
-        """Fallback prevention tips"""
-        tips = "**🛡️ How to Avoid Becoming a Money Mule:**\n\n"
-        tips += "1. **Red Flag**: Any 'job' asking you to receive and forward money is illegal\n"
-        tips += "2. **Warning**: Legitimate employers NEVER ask you to use your personal account for business\n"
-        tips += "3. **Check**: If it sounds too easy ('earn ₹15k/week doing nothing'), it's a scam\n"
-        tips += "4. **Verify**: Research company, check reviews, never trust Instagram/WhatsApp job ads\n"
-        tips += "5. **Consequences**: Money mule = criminal record, frozen accounts, prosecution\n\n"
-        tips += "**If Approached**: Report to bank immediately. Don't agree even if desperate for money."
-        return tips
+    def _fallback_timeline_summary(self, total_events, total_txns, high_risk_count, rings_count):
+        return f"""**📊 24-Hour Detection Summary**
+
+**Executive Summary**:
+Analyzed {total_events:,} cyber events and {total_txns:,} transactions. Identified {high_risk_count} high-risk accounts and {rings_count} coordinated mule rings. Threat level: Elevated.
+
+**Key Insights**:
+• {rings_count} mule rings detected with coordinated activity
+• {high_risk_count} accounts flagged for immediate review
+• Multiple accounts showing compromise + rapid fund movement pattern
+• Strong evidence of organized recruitment network
+
+**Threat Level**: Elevated - Active mule recruitment operation detected
+
+**Next 24 Hours Priority**:
+Freeze critical accounts, file SARs, contact victims, investigate beneficiaries, monitor for new recruitment activity"""
+    
+    def _fallback_freeze_impact(self, ring_id, ring_size, estimated_amount):
+        return f"""**🛑 Freeze Impact Simulation - Ring {ring_id}**
+
+**Immediate Impact**:
+All {ring_size} accounts frozen. Pending transactions blocked. Criminal network disrupted.
+
+**Estimated Funds Saved**: ₹{estimated_amount:,} daily volume stopped. Potential recovery of recent transactions.
+
+**Network Disruption**: High - Freezing {ring_size} accounts will significantly disrupt this mule network
+
+**Victim Impact**:
+Victims will be contacted, educated about scam, and offered support. Most are unaware they committed crime.
+
+**Next Actions**:
+File consolidated SAR for entire ring. Investigate all beneficiaries. Contact account holders. Monitor for new accounts in same network."""
+    
+    def _get_timestamp(self):
+        from datetime import datetime
+        return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 if __name__ == "__main__":
-    # Test
+    # Test all 6 functions
     explainer = GeminiExplainer()
     
-    test_account = {
-        'account_id': 'ACC_002747',
-        'risk_score': 90
-    }
+    print("\n=== Testing 6 Gemini Functions ===\n")
     
-    test_cyber = ['malware_detected', 'new_device', 'foreign_ip']
-    test_fin = ['rapid_transactions', 'near_threshold_amount']
-    test_ring = {'size': 12, 'beneficiaries': ['BEN_SG_001', 'BEN_RO_003']}
+    # Test 1: Ring explanation
+    print("1. RING EXPLANATION:")
+    print(explainer.explain_ring(5, 12, "BEN_SG_001, BEN_RO_003", 85))
     
-    explanation = explainer.explain_mule_pattern(test_account, test_cyber, test_fin, test_ring)
-    print(explanation)
+    # Test 2: Victim ad
+    print("\n2. VICTIM AD:")
+    print(explainer.generate_victim_ad("ACC_002747", 90))
+    
+    # Test 3: SAR narrative
+    print("\n3. SAR NARRATIVE:")
+    print(explainer.generate_sar_narrative("ACC_002747", 90, "malware, new_device", "rapid_transactions"))
+    
+    # Test 4: Single account
+    print("\n4. SINGLE ACCOUNT:")
+    print(explainer.explain_single_account("ACC_002747", 90, "malware, foreign_ip", "rapid_transactions"))
+    
+    # Test 5: Timeline summary
+    print("\n5. TIMELINE SUMMARY:")
+    print(explainer.generate_timeline_summary(20000, 2402, 2136, 286))
+    
+    # Test 6: Freeze impact
+    print("\n6. FREEZE IMPACT:")
+    print(explainer.freeze_impact_simulation(5, 12, 500000))

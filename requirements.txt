@@ -12,3 +12,4 @@ pytest
 pytest-cov
 pytest-asyncio
 httpx
+neo4j>=5.0.0

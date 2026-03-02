@@ -115,8 +115,9 @@ Hackathon: [Event Name]
 ┌─────────────────────────────────────────────────────────────┐
 │                  DETECTION LAYER                            │
 │  detection_engine.py + enhanced_detection.py                │
-│  • NetworkX Graph (23k nodes, 34k edges)                    │
+│  • NetworkX Graph (23,054 nodes processed offline)          │
 │  • Louvain Community Detection → 286 rings                  │
+│  • Live demo limited to 400 nodes for performance           │
 │  • Multi-factor Risk Scoring (0-100)                        │
 │  • 9 Detection Rules (cyber + financial + network)          │
 └──────────────────────────────────────────────────────────────┘
@@ -148,7 +149,9 @@ Hackathon: [Event Name]
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Tech Stack:** Python 3.13, FastAPI, Streamlit, NetworkX, Plotly, Gemini 1.5 Flash
+**Tech Stack:** Python 3.13, FastAPI, Streamlit, NetworkX (in-memory graph), Plotly, Gemini 1.5 Flash
+
+**Note:** Demo uses NetworkX (in-memory). Production would use Neo4j graph database for scale.
 
 ---
 
@@ -160,21 +163,21 @@ Hackathon: [Event Name]
 ```python
 # detection_engine.py - Original detector
 class CyberFinDetector:
-    def build_graph()           # 23k nodes, 34k edges
+    def build_graph()           # 23,054 nodes processed offline
     def detect_cyber_anomalies() # 6 rules
     def detect_financial_velocity() # 3 rules
     def calculate_risk_score()  # 0-100 scale
     def detect_mule_rings()     # Louvain algorithm
-    # Result: 175 rings, 283 high-risk accounts
+    # Result: Baseline detection engine
 
 # enhanced_detection.py - Advanced detector
 class EnhancedDetector:
     def calculate_risk()        # Multi-factor scoring
-    def find_mule_rings()       # 286 rings detected
+    def find_mule_rings()       # 286 rings detected (processed offline)
     def detect_anomalies_realtime() # 9 detection rules
     def generate_alert()        # Severity-based alerts
-    def get_high_risk_accounts() # 2,136 flagged
-    # Improvements: 63% more rings, 7.5x more detections
+    def get_high_risk_accounts() # ~43% of accounts flagged
+    # Improvements: Comprehensive multi-factor analysis
 
 # gemini_explainer.py - AI Intelligence (6 functions)
 class GeminiExplainer:
@@ -319,10 +322,10 @@ explainer.explain_prevention_tips(scenario_type)
 ### Quantifiable Results
 
 **Detection Performance:**
-- 📊 **286 mule rings** identified (63% more than baseline)
-- 🚨 **2,136 high-risk accounts** flagged (43.5% detection rate)
-- 🔴 **533 critical-risk accounts** (≥70 risk score)
-- 🔗 **Largest ring:** 514 accounts coordinated
+- 📊 **286 mule rings** identified (processed offline for comprehensive analysis)
+- 🚨 **~43% of analyzed accounts** flagged (high detection rate)
+- 🔴 **Critical-risk accounts** identified (≥70 risk score)
+- 🔗 **Large coordinated rings** detected with shared beneficiaries
 - ⚡ **Processing time:** 10-15 seconds for 20k events
 
 **System Capabilities:**
@@ -409,10 +412,13 @@ explainer.explain_prevention_tips(scenario_type)
 **Step 2: Graph Construction**
 ```python
 # detection_engine.py
-G = nx.DiGraph()  # Directed graph
+# Uses NetworkX (in-memory graph library)
+# Production would use Neo4j graph database
+G = nx.DiGraph()  # Directed graph in memory
 # Nodes: Accounts, IPs, Devices, Beneficiaries
 # Edges: Logins, Transactions, Device usage
 # Result: 23,054 nodes, 34,305 edges
+# Note: Graph rebuilt each run (not persistent)
 ```
 
 **Step 3: Multi-Factor Analysis**
@@ -506,8 +512,8 @@ docker-compose up -d
 
 **Phase 3 (7-11h): Detection Engine**
 - ✅ Graph construction (NetworkX)
-- ✅ Original detector (175 rings)
-- ✅ Enhanced detector (286 rings)
+- ✅ Original detector (baseline)
+- ✅ Enhanced detector (286 rings processed offline)
 - ✅ Multi-factor risk scoring
 
 **Phase 4 (11-16h): Dashboard**
@@ -576,7 +582,7 @@ docker-compose up -d
 - **Problem:** Individual accounts pass traditional checks
 - **Our Solution:** Network analysis reveals hidden rings
 - **Implementation:** Louvain community detection
-- **Result:** 286 rings discovered, 514 accounts in largest
+- **Result:** 286 rings discovered (processed offline), large coordinated networks identified
 
 **4. ✅ Detection Too Late**
 - **Problem:** Money already gone when flagged
@@ -687,10 +693,10 @@ docker-compose up -d
 - Multi-factor scoring (cyber 40 + financial 30 + network 30)
 - 9 detection rules across 3 categories
 - Louvain community detection algorithm
-- 286 rings, 2,136 high-risk accounts
+- 286 rings processed offline — 8 critical shown live
 
 **AI:**
-- 6 Gemini functions (pattern, ring, victim, investigation, SAR, prevention)
+- 6 Gemini functions with JSON mode + lru_cache
 - Smart fallback mode (works without API)
 - 4 new dashboard buttons
 - Natural language output
@@ -717,14 +723,24 @@ docker-compose up -d
 
 **Key Messages:**
 - "Solves all 4 problems"
-- "286 rings detected, 2,136 high-risk"
-- "Built in 24 hours, production-ready architecture"
+- "286 rings processed offline — 8 critical shown live"
+- "Built in 24 hours, scalable architecture"
 - "What regulators have been demanding"
 
 ### Technical Q&A Preparation
 
+**Q: Are you using a graph database?**
+A: **Demo:** NetworkX (in-memory Python library) - perfect for 20k events, fast development.
+**Production:** Would migrate to Neo4j graph database for:
+- Persistent storage (data survives restarts)
+- Billions of nodes/edges
+- Concurrent access (multiple users)
+- ACID transactions
+- Built-in graph algorithms
+- Industry standard for fraud detection
+
 **Q: How does it scale?**
-A: Architecture designed for millions of nodes. Current demo: 23k nodes. Production: Neo4j graph DB, Kafka streaming, horizontal scaling.
+A: Architecture designed for millions of nodes. Current demo: 23k nodes in-memory. Production: Neo4j graph DB, Kafka streaming, horizontal scaling. Migration path is straightforward - same graph concepts, different storage layer.
 
 **Q: What about false positives?**
 A: Multi-factor scoring reduces false positives by 60%. Network analysis validates individual alerts. Human review for edge cases.
