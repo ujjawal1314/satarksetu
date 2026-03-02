@@ -2,12 +2,25 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from detection_engine_neo4j import CyberFinDetectorNeo4j
-from gemini_explainer import GeminiExplainer
 import networkx as nx
 from datetime import datetime, timedelta
 import random
 import os
+
+# Securely load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    pass
+
+from detection_engine_neo4j import CyberFinDetectorNeo4j
+from gemini_explainer import GeminiExplainer
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -103,7 +116,6 @@ st.markdown("""
 if "frozen_accounts" not in st.session_state:
     st.session_state.frozen_accounts = set()
 
-# Initialize memory for AI outputs so they don't disappear when you click another button
 if "ai_outputs" not in st.session_state:
     st.session_state.ai_outputs = {}
 
@@ -123,20 +135,21 @@ def load_data():
 
 @st.cache_resource
 def initialize_detector(cyber, txns):
-    """Initialize detector with Neo4j-compatible graph database"""
-    # Check if Neo4j should be used (from environment variable)
     use_neo4j = os.getenv('USE_NEO4J', 'false').lower() == 'true'
-    
     detector = CyberFinDetectorNeo4j(cyber, txns, use_neo4j=use_neo4j)
     stats = detector.build_graph()
-    
-    # Store database info for display
     detector.db_stats = stats
-    
     return detector
 
 @st.cache_resource
 def initialize_explainer():
+    # Pass the API key to environment so GeminiExplainer can pick it up natively
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        try:
+            genai.configure(api_key=api_key)
+        except NameError:
+            pass
     explainer = GeminiExplainer()
     return explainer
 
@@ -199,12 +212,15 @@ explainer = initialize_explainer()
 
 st.sidebar.header("⚙️ Controls")
 
+# API Key check via environment
+api_key = os.getenv("GEMINI_API_KEY")
+
 # Gemini AI Status
-if explainer.api_available:
+if explainer.api_available and api_key:
     st.sidebar.success("✅ Gemini AI: Active", icon="🤖")
 else:
     st.sidebar.warning("⚠️ Gemini AI: Fallback Mode", icon="⚠️")
-    st.sidebar.info("Add GEMINI_API_KEY to .env for AI features. See GEMINI_API_SETUP.md")
+    st.sidebar.info("Add GEMINI_API_KEY to your .env file to enable AI features.")
 
 # Graph Database Status
 if hasattr(detector, 'db_stats'):
@@ -212,15 +228,11 @@ if hasattr(detector, 'db_stats'):
     nodes = detector.db_stats['nodes']
     edges = detector.db_stats['edges']
     
-    # Always show as Neo4j-compatible architecture
     if 'Neo4j' in db_type:
         st.sidebar.success(f"✅ Graph DB: Neo4j (Connected)", icon="🗄️")
-        st.sidebar.caption(f"📊 {nodes:,} nodes, {edges:,} edges")
     else:
-        # Neo4j-compatible architecture (using in-memory mode for demo)
         st.sidebar.success(f"✅ Graph DB: Neo4j Architecture", icon="🗄️")
-        st.sidebar.caption(f"📊 {nodes:,} nodes, {edges:,} edges")
-        st.sidebar.caption(f"💡 In-memory mode for demo performance")
+    st.sidebar.caption(f"📊 {nodes:,} nodes, {edges:,} edges")
 
 risk_threshold = st.sidebar.slider("Risk Score Threshold", 0, 100, 50)
 
@@ -269,7 +281,6 @@ if view_mode == "Dashboard":
         df_risks = pd.DataFrame(risk_data)
         st.dataframe(df_risks, use_container_width=True)
         
-        # Plotly themed for dark mode
         fig_risk = px.histogram(df_risks, x='Risk Score', nbins=20, title="Risk Score Distribution", color_discrete_sequence=['#ff3366'])
         fig_risk.update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_risk, use_container_width=True)
@@ -292,19 +303,15 @@ if view_mode == "Dashboard":
 elif view_mode == "Live Graph":
     st.subheader("🕸️ Network Graph Visualization")
     st.info("Showing connections between accounts, devices, IPs, and beneficiaries using Neo4j-compatible graph architecture")
-    st.warning("⚠️ Graph limited to 500 nodes for demo performance. Neo4j production deployment handles billions of nodes.", icon="⚠️")
     
     rings = detector.detect_mule_rings()
     if rings:
-        # Create ring options with index for proper selection
         ring_options = [f"Ring {r['ring_id']} ({r['size']} accounts)" for r in rings[:10]]
         selected_ring_str = st.selectbox("Select Ring to Visualize", ring_options, key="live_graph_ring_selector")
         
-        # Extract ring_id from selection
         ring_idx = int(selected_ring_str.split()[1].split('(')[0])
         ring = [r for r in rings if r['ring_id'] == ring_idx][0]
         
-        # Display ring info
         st.info(f"📊 Visualizing Ring {ring_idx}: {ring['size']} accounts, {len(ring['shared_beneficiaries'])} shared beneficiaries")
         
         subgraph = nx.Graph()
@@ -313,10 +320,9 @@ elif view_mode == "Live Graph":
         
         for acc in ring['accounts']:
             if node_count >= MAX_NODES:
-                st.warning(f"⚠️ Graph limited to {MAX_NODES} nodes for demo. Neo4j production deployment handles full ring of {len(ring['accounts'])} accounts.")
+                st.warning(f"⚠️ Graph limited to {MAX_NODES} nodes for demo.")
                 break
             
-            # Using the known shared beneficiaries to draw the graph correctly avoiding detector.graph attribute error
             neighbors = ring['shared_beneficiaries']
             
             for neighbor in neighbors[:10]:
@@ -399,20 +405,19 @@ elif view_mode == "Ring Analysis":
             st.download_button(label="⬇️ Download Ring Data", data=csv, file_name=f"Ring_{ring_idx}_Export_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
 # ------------------------------------------
-# VIEW: ACCOUNT LOOKUP (Fixed Actions & State)
+# VIEW: ACCOUNT LOOKUP
 # ------------------------------------------
 elif view_mode == "Account Lookup":
     st.subheader("🔍 Account Risk Analysis")
     
     account_id = st.text_input("Enter Account ID (e.g., ACC_002747)")
     
-    # Clear AI state if the user searches a new account
     if account_id != st.session_state.current_viewed_account:
         st.session_state.current_viewed_account = account_id
         st.session_state.ai_outputs = {}
     
     if account_id and st.button("Analyze"):
-        st.session_state.ai_outputs = {} # clear memory on fresh analysis
+        st.session_state.ai_outputs = {} 
         
     if account_id and account_id in cyber_df['account_id'].values:
         risk_score = detector.calculate_risk_score(account_id)
@@ -441,7 +446,6 @@ elif view_mode == "Account Lookup":
                 for flag in fin_flags: st.markdown(f"- <span style='color:#ffb3c1;'>{flag}</span>", unsafe_allow_html=True)
             else: st.write("None")
         
-        # Action buttons
         st.subheader("⚡ Quick Actions")
         col1, col2, col3 = st.columns(3)
         
@@ -471,7 +475,6 @@ elif view_mode == "Account Lookup":
 
         st.markdown("---")
         
-        # Additional AI-powered buttons using session state memory
         st.subheader("🤖 AI-Powered Analysis")
         col4, col5 = st.columns(2)
         
