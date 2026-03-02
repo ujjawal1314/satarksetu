@@ -296,9 +296,16 @@ elif view_mode == "Live Graph":
     
     rings = detector.detect_mule_rings()
     if rings:
-        selected_ring = st.selectbox("Select Ring to Visualize", [f"Ring {r['ring_id']} ({r['size']} accounts)" for r in rings[:10]])
-        ring_idx = int(selected_ring.split()[1])
+        # Create ring options with index for proper selection
+        ring_options = [f"Ring {r['ring_id']} ({r['size']} accounts)" for r in rings[:10]]
+        selected_ring_str = st.selectbox("Select Ring to Visualize", ring_options, key="live_graph_ring_selector")
+        
+        # Extract ring_id from selection
+        ring_idx = int(selected_ring_str.split()[1].split('(')[0])
         ring = [r for r in rings if r['ring_id'] == ring_idx][0]
+        
+        # Display ring info
+        st.info(f"📊 Visualizing Ring {ring_idx}: {ring['size']} accounts, {len(ring['shared_beneficiaries'])} shared beneficiaries")
         
         subgraph = nx.Graph()
         node_count = 0
@@ -308,7 +315,10 @@ elif view_mode == "Live Graph":
             if node_count >= MAX_NODES:
                 st.warning(f"⚠️ Graph limited to {MAX_NODES} nodes for demo. Neo4j production deployment handles full ring of {len(ring['accounts'])} accounts.")
                 break
-            neighbors = list(detector.graph.neighbors(acc))
+            
+            # Using the known shared beneficiaries to draw the graph correctly avoiding detector.graph attribute error
+            neighbors = ring['shared_beneficiaries']
+            
             for neighbor in neighbors[:10]:
                 if node_count < MAX_NODES:
                     subgraph.add_edge(acc, neighbor)
@@ -335,15 +345,15 @@ elif view_mode == "Live Graph":
             plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False), 
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"live_graph_ring_{ring_idx}")
         
         st.write(f"**Accounts in Ring:** {', '.join(ring['accounts'][:10])}")
         st.write(f"**Shared Beneficiaries:** {', '.join(ring['shared_beneficiaries'])}")
         
-        if st.button("🤖 Explain This Ring with AI"):
+        if st.button("🤖 Explain This Ring with AI", key=f"live_graph_ai_button_{ring_idx}"):
             with st.spinner("Generating AI explanation..."):
-                account_data = {'account_id': f"Ring_{ring_idx}", 'risk_score': 85}
-                explanation = explainer.explain_mule_pattern(account_data, ['multiple_accounts', 'shared_beneficiaries'], ['rapid_transactions'], {'size': ring['size'], 'beneficiaries': ring['shared_beneficiaries']})
+                beneficiaries_str = ', '.join(ring['shared_beneficiaries'][:5])
+                explanation = explainer.explain_ring(ring_idx, ring['size'], beneficiaries_str, 85)
                 st.markdown("### 🤖 AI Analysis")
                 st.info(explanation)
 
