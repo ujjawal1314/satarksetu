@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from collections import defaultdict
 from graph_database import GraphDatabaseFactory, GraphDatabaseInterface, NetworkXGraphDatabase
+from mule_ai_detector import detect_mule_rings_with_ai
 
 
 class CyberFinDetectorNeo4j:
@@ -106,29 +107,31 @@ class CyberFinDetectorNeo4j:
         return flags
     
     def detect_mule_rings(self):
-        """Detect connected mule networks using community detection"""
+        """Detect mule rings using AI model checkpoint (best_gnn_a_transactions.pth)."""
+        ai_result = detect_mule_rings_with_ai(self.cyber_df, self.txn_df)
+        if ai_result.used_ai:
+            print(f"✅ Mule detection mode: AI model ({len(ai_result.rings)} rings)")
+            return ai_result.rings
+
+        # Fallback only if model runtime is unavailable.
+        print(f"⚠️ Mule detection fallback: graph-community rules ({ai_result.reason})")
         print("Detecting mule rings using graph database...")
-        
-        # Use graph database community detection
+
         communities = self.db.detect_communities()
-        
-        # Group accounts by community
         community_accounts = defaultdict(list)
         for node, comm_id in communities.items():
             if node.startswith('ACC_'):
                 community_accounts[comm_id].append(node)
-        
-        # Flag suspicious communities (multiple accounts sharing beneficiaries)
+
         suspicious_rings = []
         for comm_id, accounts in community_accounts.items():
-            if len(accounts) >= 3:  # At least 3 accounts in ring
-                # Check if they share beneficiaries
+            if len(accounts) >= 3:
                 shared_beneficiaries = set()
                 for acc in accounts:
                     neighbors = self.db.get_neighbors(acc)
                     beneficiaries = [n for n in neighbors if n.startswith('BEN_')]
                     shared_beneficiaries.update(beneficiaries)
-                
+
                 if len(shared_beneficiaries) > 0:
                     suspicious_rings.append({
                         'ring_id': comm_id,
@@ -136,7 +139,7 @@ class CyberFinDetectorNeo4j:
                         'shared_beneficiaries': list(shared_beneficiaries),
                         'size': len(accounts)
                     })
-        
+
         print(f"Found {len(suspicious_rings)} suspicious rings")
         return suspicious_rings
     

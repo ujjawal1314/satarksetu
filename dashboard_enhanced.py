@@ -233,8 +233,7 @@ st.markdown("""
         background: rgba(255,255,255,0.18) !important;
         border-color: rgba(255,255,255,0.35) !important;
     }
-    .st-key-landing_get_started,
-    .st-key-landing_login {
+    .st-key-landing_get_started {
         position: fixed;
         top: auto;
         bottom: 26px;
@@ -242,7 +241,6 @@ st.markdown("""
         pointer-events: auto;
     }
     .st-key-landing_get_started { right: 136px; width: 112px; }
-    .st-key-landing_login { right: 28px; width: 90px; }
     .st-key-landing_get_started button {
         border-radius: 999px !important;
         min-height: 36px !important;
@@ -250,15 +248,6 @@ st.markdown("""
         background: #7C3AED !important;
         color: #ffffff !important;
         border: none !important;
-        font-weight: 700 !important;
-    }
-    .st-key-landing_login button {
-        border-radius: 999px !important;
-        min-height: 36px !important;
-        padding: 8px 14px !important;
-        background: transparent !important;
-        color: #ffffff !important;
-        border: 1px solid rgba(255,255,255,0.35) !important;
         font-weight: 700 !important;
     }
     .landing-wrap {
@@ -814,8 +803,7 @@ if not st.session_state.dashboard_landing_done:
         "Home": ("Home", "Welcome to CyberFin Fusion. This landing page is now interactive and routes to your core dashboard."),
         "Contact Us": ("Contact Us", load_contact_us_content()),
         "Help": ("Help", load_help_content()),
-        "About Us": ("About Us", load_about_us_content()),
-        "Login": ("Login", "Login section placeholder. We can connect this to real authentication when you are ready.")
+        "About Us": ("About Us", load_about_us_content())
     }
 
     cutout_1 = image_to_data_uri("1.jpg")
@@ -872,7 +860,7 @@ if not st.session_state.dashboard_landing_done:
         """,
         unsafe_allow_html=True
     )
-    l_sp_l, l_nav1, l_nav2, l_nav3, l_nav4, l_sp_r, l_act1, l_act2 = st.columns([1.3, 0.9, 1.05, 0.7, 0.9, 2.8, 1.0, 0.8])
+    l_sp_l, l_nav1, l_nav2, l_nav3, l_nav4, l_sp_r, l_act1 = st.columns([1.3, 0.9, 1.05, 0.7, 0.9, 3.6, 1.0])
     with l_nav1:
         if st.button("Home", key="landing_home", type="primary" if st.session_state.landing_nav_tab == "Home" else "secondary", use_container_width=True):
             st.session_state.landing_nav_tab = "Home"
@@ -892,10 +880,6 @@ if not st.session_state.dashboard_landing_done:
     with l_act1:
         if st.button("Get started", key="landing_get_started", use_container_width=True):
             st.session_state.dashboard_landing_done = True
-            st.rerun()
-    with l_act2:
-        if st.button("Login", key="landing_login", use_container_width=True):
-            st.session_state.landing_nav_tab = "Login"
             st.rerun()
     st.stop()
 
@@ -1070,11 +1054,16 @@ elif view_mode == "Live Graph":
     if not rings:
         st.info("No mule rings detected in current analysis dataset.")
     else:
-        ring_options = [f"Ring {r['ring_id']} ({r['size']} accounts)" for r in rings[:20]]
-        selected_ring_str = st.selectbox("Select Ring to Visualize", ring_options, key="live_graph_ring_selector")
-
-        ring_idx = int(selected_ring_str.split()[1].split('(')[0])
-        ring = [r for r in rings if r['ring_id'] == ring_idx][0]
+        ring_lookup = {int(r["ring_id"]): r for r in rings}
+        ring_ids = sorted(ring_lookup.keys())
+        selected_ring_id = st.selectbox(
+            "Select Ring to Visualize",
+            ring_ids,
+            key="live_graph_ring_selector",
+            format_func=lambda rid: f"Ring {rid}",
+        )
+        ring_idx = int(selected_ring_id)
+        ring = ring_lookup[ring_idx]
 
         st.info(
             f"Visualizing Ring {ring_idx}: {ring['size']} accounts, "
@@ -1166,10 +1155,16 @@ elif view_mode == "Ring Analysis":
     rings = detector.detect_mule_rings()
     
     if rings:
-        ring_options = [f"Ring {r['ring_id']} - {r['size']} accounts" for r in rings[:20]]
-        selected = st.selectbox("Select Ring for Analysis", ring_options)
-        ring_idx = int(selected.split()[1])
-        ring = [r for r in rings if r['ring_id'] == ring_idx][0]
+        ring_lookup = {int(r["ring_id"]): r for r in rings}
+        ring_ids = sorted(ring_lookup.keys())
+        selected_ring_id = st.selectbox(
+            "Select Ring for Analysis",
+            ring_ids,
+            key="ring_analysis_selector",
+            format_func=lambda rid: f"Ring {rid}",
+        )
+        ring_idx = int(selected_ring_id)
+        ring = ring_lookup[ring_idx]
         
         col1, col2, col3 = st.columns(3)
         with col1: st.metric("Ring Size", f"{ring['size']} accounts")
@@ -1232,12 +1227,10 @@ elif view_mode == "Account Lookup":
         with col1:
             st.metric("Risk Score", f"{risk_score}/100")
             st.markdown(f"Status: {status_badge(account_status)}", unsafe_allow_html=True)
-            if risk_score >= 70:
+            if risk_score > risk_threshold:
                 st.markdown('<div class="alert-critical">🚨 CRITICAL RISK DETECTED</div>', unsafe_allow_html=True)
-            elif risk_score >= 50:
-                st.warning("⚠️ HIGH RISK")
             else:
-                st.success("✅ LOW RISK")
+                st.success("✅ NORMAL")
             if account_status == "FROZEN":
                 st.error("Account Frozen - Transactions Blocked")
         
@@ -1259,11 +1252,14 @@ elif view_mode == "Account Lookup":
             if account_status == "FROZEN":
                 st.button("🛑 Freeze Account", disabled=True, use_container_width=True)
                 st.error("❄️ Account is currently frozen.")
-            elif risk_score >= 70:
+            elif risk_score >= risk_threshold:
                 if st.button("🛑 Freeze Account", use_container_width=True):
                     freeze_response = safe_post_json(
                         f"{backend_base_url}/accounts/{account_id}/freeze",
-                        payload={"reason": "High risk account from CyberFin dashboard", "performed_by": "dashboard_user"},
+                        payload={
+                            "reason": f"Risk score {int(risk_score)} exceeded dashboard threshold {int(risk_threshold)}",
+                            "performed_by": "dashboard_user",
+                        },
                     )
                     if freeze_response is not None and freeze_response.status_code < 300:
                         st.toast("Account frozen")
@@ -1278,7 +1274,7 @@ elif view_mode == "Account Lookup":
                         st.error(f"Freeze failed: {detail}")
             else:
                 st.button("🛑 Freeze Account", disabled=True, use_container_width=True)
-                st.caption("Freeze available only for risk score >= 70")
+                st.caption(f"Freeze available only for risk score >= {int(risk_threshold)}")
         
         with col2:
             if account_status == "FROZEN":

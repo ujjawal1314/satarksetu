@@ -6,6 +6,7 @@ import math
 
 import pandas as pd
 from neo4j import GraphDatabase
+from mule_ai_detector import detect_mule_rings_with_ai
 
 
 class Neo4jGraphView:
@@ -174,6 +175,15 @@ class CyberFinDetector:
         return flags
 
     def detect_mule_rings(self):
+        """Detect mule rings using AI model checkpoint (best_gnn_a_transactions.pth)."""
+        ai_result = detect_mule_rings_with_ai(self.cyber_df, self.txn_df)
+        if ai_result.used_ai:
+            print(f"✅ Mule detection mode: AI model ({len(ai_result.rings)} rings)")
+            return ai_result.rings
+
+        # Fallback only if model runtime is unavailable.
+        # Keep legacy logic untouched to avoid breaking demos in environments without torch.
+        print(f"⚠️ Mule detection fallback: legacy rules ({ai_result.reason})")
         """Detect mule rings using weighted account-account communities (no NetworkX)."""
         txn_records = self._run(
             """
