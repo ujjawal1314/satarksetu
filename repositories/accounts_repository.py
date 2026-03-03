@@ -22,7 +22,7 @@ class AccountRepository:
     def _now(self) -> str:
         return datetime.utcnow().isoformat()
 
-    def ensure_account(self, account_id: str, name: Optional[str] = None) -> Dict:
+    def ensure_account(self, account_id: str, name: Optional[str] = None, status: str = "ACTIVE") -> Dict:
         existing = self.get_account(account_id)
         if existing:
             return existing
@@ -30,7 +30,7 @@ class AccountRepository:
             "account_id": account_id,
             "name": name or account_id,
             "risk_score": 0,
-            "status": "ACTIVE",
+            "status": status,
             "created_at": self._now(),
             "updated_at": self._now(),
         }
@@ -43,8 +43,14 @@ class AccountRepository:
         self._fallback_accounts[account_id] = payload
         return payload
 
-    def upsert_account_risk(self, account_id: str, risk_score: int, name: Optional[str] = None) -> Dict:
-        existing = self.ensure_account(account_id, name)
+    def upsert_account_risk(
+        self,
+        account_id: str,
+        risk_score: int,
+        name: Optional[str] = None,
+        default_status: str = "ACTIVE",
+    ) -> Dict:
+        existing = self.ensure_account(account_id, name, status=default_status)
         payload = {
             "account_id": account_id,
             "name": existing.get("name") or name or account_id,

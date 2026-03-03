@@ -13,6 +13,7 @@ from detection_engine import CyberFinDetector
 from detection_engine_neo4j import CyberFinDetectorNeo4j
 from repositories import AccountRepository
 from api_models import FreezeAccountRequest, TransactionRequest
+from neo4j_service import get_neo4j_service
 
 # Load environment variables from .env when running locally.
 try:
@@ -36,6 +37,7 @@ app.add_middleware(
 G = nx.Graph()  # Live graph
 active_connections: List[WebSocket] = []
 repo = AccountRepository()
+neo4j_service = get_neo4j_service()
 
 # Load data
 cyber_df = pd.read_csv("cyber_events.csv", parse_dates=["timestamp"])
@@ -76,17 +78,29 @@ def bootstrap_accounts() -> None:
 # bootstrap_accounts()
 
 
-def get_account_status(account_id: str) -> str:
+def get_account_status(account_id: str):
     account = repo.get_account(account_id)
     if not account:
-        account = repo.ensure_account(account_id)
+        return None
     return account.get("status", "ACTIVE")
 
 
-def sync_risk(account_id: str) -> int:
+def sync_risk(account_id: str, default_status: str = "ACTIVE") -> int:
     risk = int(detector.calculate_risk_score(account_id))
-    repo.upsert_account_risk(account_id, risk)
+    repo.upsert_account_risk(account_id, risk, default_status=default_status)
     return risk
+
+
+def require_neo4j():
+    if not neo4j_service.ensure_available():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Neo4j unavailable. Verify NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD and Neo4j service status. "
+                "If backend runs in Docker, localhost points to the container; use host.docker.internal:7687 "
+                "or a Neo4j service name on the same Docker network."
+            ),
+        )
 
 
 # Streaming simulation
@@ -158,9 +172,10 @@ def root():
             "stream": "/stream (SSE)",
             "websocket": "/ws",
             "stats": "/stats",
-            "graph": "/graph/stats",
+            "graph": "/graph",
             "freeze_account": "POST /accounts/{account_id}/freeze",
-            "process_transaction": "POST /transactions/process",
+            "process_transaction": "POST /transactions",
+            "process_transaction_legacy": "POST /transactions/process",
             "demo_suspicious": "POST /transactions/demo-suspicious",
         },
     }
@@ -236,7 +251,13 @@ def analyze_account(account_id: str):
     risk_score = sync_risk(account_id)
     cyber_flags = detector.detect_cyber_anomalies(account_id)
     fin_flags = detector.detect_financial_velocity(account_id)
-    account = repo.get_account(account_id) or repo.ensure_account(account_id)
+    if neo4j_service.available:
+        account = neo4j_service.get_account(account_id)
+        if not account:
+            repo_account = repo.get_account(account_id) or repo.ensure_account(account_id)
+            account = {"status": repo_account.get("status", "ACTIVE")}
+    else:
+        account = repo.get_account(account_id) or repo.ensure_account(account_id)
     detection_graph = get_detection_graph()
 
     recent_cyber = cyber_df[cyber_df["account_id"] == account_id].tail(10)
@@ -262,24 +283,35 @@ def list_accounts():
 
 @app.get("/accounts/{account_id}/status")
 def account_status(account_id: str):
-    account = repo.get_account(account_id) or repo.ensure_account(account_id)
+    if neo4j_service.available:
+        account = neo4j_service.get_account(account_id)
+    else:
+        account = repo.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
     return {
         "account_id": account_id,
         "status": account.get("status", "ACTIVE"),
-        "risk_score": account.get("risk_score", 0),
+        "risk_score": int(account.get("risk_score", 0)),
     }
 
 
 @app.post("/accounts/{account_id}/freeze")
-def freeze_account(account_id: str, req: FreezeAccountRequest):
-    if account_id not in cyber_df["account_id"].values:
-        raise HTTPException(status_code=404, detail="Account not found")
+def freeze_account(account_id: str, req: FreezeAccountRequest | None = None):
+    require_neo4j()
+    freeze_req = req or FreezeAccountRequest()
+    risk_score = int(detector.calculate_risk_score(account_id)) if account_id in cyber_df["account_id"].values else 0
 
-    risk_score = sync_risk(account_id)
-    if risk_score < 70:
-        raise HTTPException(status_code=400, detail=f"Risk score {risk_score} below freeze threshold (70)")
+    account = neo4j_service.freeze_account(account_id, risk_score=risk_score)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found in Neo4j graph")
 
-    account = repo.freeze_account(account_id, reason=req.reason, performed_by=req.performed_by)
+    # Keep relational state in sync for existing non-graph dashboards/metrics.
+    repo.freeze_account(
+        account_id,
+        reason=freeze_req.reason,
+        performed_by=freeze_req.performed_by,
+    )
     return {"account": account, "message": "Account frozen"}
 
 
@@ -291,40 +323,40 @@ def unfreeze_account(account_id: str, req: FreezeAccountRequest):
     return {"account": account, "message": "Account unfrozen"}
 
 
+@app.post("/transactions")
 @app.post("/transactions/process")
 def process_transaction(req: TransactionRequest):
-    if req.from_account not in cyber_df["account_id"].values:
-        raise HTTPException(status_code=404, detail="Source account not found")
+    require_neo4j()
 
-    risk_score = sync_risk(req.from_account)
-    status = "APPROVED"
-    block_reason = None
+    risk_score = int(detector.calculate_risk_score(req.from_account)) if req.from_account in cyber_df["account_id"].values else 0
+    result = neo4j_service.create_transaction(
+        from_id=req.from_account,
+        to_id=req.to_account,
+        amount=float(req.amount),
+        txn_id=f"TXN_{uuid4().hex[:12].upper()}",
+        risk_score=risk_score,
+    )
 
-    # Block if sender is frozen.
-    if get_account_status(req.from_account) == "FROZEN":
-        status = "BLOCKED"
-        block_reason = "Source account is frozen"
-
-    # Block incoming transfers to a frozen internal account.
-    if status != "BLOCKED" and req.to_account.startswith("ACC_"):
-        if get_account_status(req.to_account) == "FROZEN":
-            status = "BLOCKED"
-            block_reason = "Destination account is frozen"
-
-    txn_payload = {
-        "txn_id": f"TXN_{uuid4().hex[:12].upper()}",
-        "from_account": req.from_account,
-        "to_account": req.to_account,
-        "amount": float(req.amount),
-        "timestamp": datetime.utcnow().isoformat(),
-        "status": status,
-        "risk_score": risk_score,
-    }
+    txn_payload = result["transaction"]
     repo.log_transaction(txn_payload)
+    repo.upsert_account_risk(req.from_account, risk_score)
 
-    if status == "BLOCKED":
-        raise HTTPException(status_code=403, detail=block_reason or "Account frozen")
+    if result["blocked"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": result.get("reason") or "Source account is frozen",
+                "transaction": txn_payload,
+            },
+        )
+
     return {"transaction": txn_payload}
+
+
+@app.get("/graph")
+def get_graph():
+    require_neo4j()
+    return neo4j_service.fetch_graph()
 
 
 @app.post("/transactions/demo-suspicious")
@@ -336,7 +368,10 @@ def demo_suspicious_transaction():
         risk_score = 82
         repo.upsert_account_risk(suspicious_account, risk_score)
 
-    account_status = get_account_status(suspicious_account)
+    if neo4j_service.available:
+        account_status = neo4j_service.get_account_status(suspicious_account) or "ACTIVE"
+    else:
+        account_status = get_account_status(suspicious_account)
     txn_status = "APPROVED" if account_status != "FROZEN" else "BLOCKED"
 
     txn_payload = {

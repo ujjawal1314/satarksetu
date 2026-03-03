@@ -3,8 +3,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
+import math
 import html
 import base64
+import io
 from datetime import datetime, timedelta
 import random
 import os
@@ -25,6 +27,13 @@ except ImportError:
 from detection_engine_neo4j import CyberFinDetectorNeo4j
 from gemini_explainer import GeminiExplainer
 from repositories import AccountRepository
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    REPORTLAB_AVAILABLE = True
+except Exception:
+    REPORTLAB_AVAILABLE = False
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -478,6 +487,9 @@ if "ai_outputs" not in st.session_state:
 if "current_viewed_account" not in st.session_state:
     st.session_state.current_viewed_account = None
 
+if "last_tx_receipt" not in st.session_state:
+    st.session_state.last_tx_receipt = None
+
 # ==========================================
 # DATA LOADING
 # ==========================================
@@ -491,8 +503,9 @@ def load_data():
 
 @st.cache_resource
 def initialize_detector(cyber, txns):
-    use_neo4j = os.getenv('USE_NEO4J', 'false').lower() == 'true'
-    detector = CyberFinDetectorNeo4j(cyber, txns, use_neo4j=use_neo4j)
+    # Keep dashboard startup fast and avoid clearing/rebuilding persistent Neo4j data.
+    # Backend is the single writer/source-of-truth for the transaction graph.
+    detector = CyberFinDetectorNeo4j(cyber, txns, use_neo4j=False)
     stats = detector.build_graph()
     detector.db_stats = stats
     return detector
@@ -605,6 +618,186 @@ def safe_post_json(url, payload=None, timeout=4.0):
         return res
     except Exception:
         return None
+
+def safe_get_json(url, timeout=4.0):
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            res = client.get(url)
+        return res
+    except Exception:
+        return None
+
+
+def fetch_backend_graph():
+    response = safe_get_json(f"{backend_base_url}/graph")
+    if response is None:
+        return None, "Backend unreachable. Start FastAPI backend."
+    if response.status_code >= 300:
+        try:
+            detail = response.json().get("detail", response.text)
+        except Exception:
+            detail = response.text
+        return None, f"Graph unavailable: {detail}"
+    return response.json(), None
+
+
+def render_transaction_graph(graph_payload, plot_key):
+    nodes = graph_payload.get("nodes", [])
+    edges = graph_payload.get("edges", [])
+
+    if not nodes:
+        st.info("No accounts in Neo4j yet. Create a transaction to seed the graph.")
+        return
+
+    graph = nx.DiGraph()
+    for node in nodes:
+        node_id = str(node.get("id"))
+        graph.add_node(
+            node_id,
+            status=(node.get("status") or "ACTIVE"),
+            risk_score=int(node.get("risk_score") or 0),
+        )
+    for edge in edges:
+        source = str(edge.get("source"))
+        target = str(edge.get("target"))
+        if source and target:
+            graph.add_edge(
+                source,
+                target,
+                status=(edge.get("status") or "APPROVED"),
+                amount=float(edge.get("amount") or 0.0),
+                txn_id=str(edge.get("txn_id") or ""),
+            )
+
+    if graph.number_of_nodes() == 1:
+        only_node = next(iter(graph.nodes()))
+        pos = {only_node: (0.0, 0.0)}
+    else:
+        k = max(0.35, 1.0 / math.sqrt(max(graph.number_of_nodes(), 2)))
+        pos = nx.spring_layout(graph.to_undirected(), seed=42, k=k, iterations=60)
+
+    approved_edge_trace = go.Scatter(
+        x=[],
+        y=[],
+        line=dict(width=1.4, color="#2563EB"),
+        hoverinfo="none",
+        mode="lines",
+        name="APPROVED",
+    )
+    blocked_edge_trace = go.Scatter(
+        x=[],
+        y=[],
+        line=dict(width=1.6, color="#6B7280"),
+        hoverinfo="none",
+        mode="lines",
+        name="BLOCKED",
+    )
+
+    for source, target, attrs in graph.edges(data=True):
+        x0, y0 = pos[source]
+        x1, y1 = pos[target]
+        target_trace = blocked_edge_trace if attrs.get("status") == "BLOCKED" else approved_edge_trace
+        target_trace["x"] += tuple([x0, x1, None])
+        target_trace["y"] += tuple([y0, y1, None])
+
+    node_x = []
+    node_y = []
+    node_text = []
+    node_color = []
+    for node_id, attrs in graph.nodes(data=True):
+        x, y = pos[node_id]
+        node_x.append(x)
+        node_y.append(y)
+        status = attrs.get("status", "ACTIVE")
+        risk = int(attrs.get("risk_score") or 0)
+        node_text.append(f"{node_id}<br>Status: {status}<br>Risk: {risk}")
+        if status == "FROZEN":
+            node_color.append("#DC2626")
+        elif status == "UNDER_REVIEW":
+            node_color.append("#EA580C")
+        else:
+            node_color.append("#16A34A")
+
+    node_trace = go.Scatter(
+        x=node_x,
+        y=node_y,
+        hovertext=node_text,
+        mode="markers+text",
+        hoverinfo="text",
+        textposition="top center",
+        text=[str(node) for node in graph.nodes()],
+        marker=dict(showscale=False, size=14, line_width=1.5, color=node_color, line=dict(color="#E2E8F0")),
+        textfont=dict(color="#1F2937", size=11),
+        name="Accounts",
+    )
+
+    fig = go.Figure(
+        data=[approved_edge_trace, blocked_edge_trace, node_trace],
+        layout=go.Layout(
+            title=dict(text="Neo4j Transaction Graph", font=dict(color="#0F172A")),
+            showlegend=True,
+            hovermode="closest",
+            margin=dict(b=0, l=0, r=0, t=42),
+            plot_bgcolor="rgba(255,255,255,0)",
+            paper_bgcolor="rgba(255,255,255,0)",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True, key=plot_key)
+    st.caption(f"Accounts: {len(nodes)} | Transfers: {len(edges)}")
+
+def build_receipt_pdf(txn, verdict):
+    """Generate a clean transaction receipt PDF."""
+    if not REPORTLAB_AVAILABLE:
+        return None
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    y = height - 60
+    c.setFont("Helvetica-Bold", 28)
+    c.drawString(72, y, "Transaction Receipt")
+
+    c.setFont("Helvetica", 12)
+    c.drawRightString(width - 72, y, f"Receipt #{txn.get('txn_id', 'N/A')}")
+    y -= 28
+    c.drawRightString(width - 72, y, datetime.now().strftime("%B %d, %Y %H:%M:%S"))
+
+    y -= 50
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(72, y, "Details")
+
+    y -= 24
+    c.setFont("Helvetica", 13)
+    rows = [
+        ("From Account", str(txn.get("from_account", "N/A"))),
+        ("To Account", str(txn.get("to_account", "N/A"))),
+        ("Transaction ID", str(txn.get("txn_id", "N/A"))),
+        ("Amount", f"{float(txn.get('amount', 0.0)):.2f}"),
+        ("Timestamp", str(txn.get("timestamp", "N/A"))),
+        ("Result", verdict),
+        ("Txn Status", str(txn.get("status", "N/A"))),
+    ]
+
+    for key, value in rows:
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(72, y, f"{key}:")
+        c.setFont("Helvetica", 12)
+        c.drawString(210, y, value)
+        y -= 22
+
+    y -= 8
+    c.setLineWidth(0.8)
+    c.line(72, y, width - 72, y)
+    y -= 28
+    c.setFont("Helvetica", 12)
+    c.drawString(72, y, "Generated by CyberFin Fusion")
+
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # ==========================================
 # MAIN APP EXECUTION
@@ -856,75 +1049,108 @@ if view_mode == "Dashboard":
 # ------------------------------------------
 elif view_mode == "Live Graph":
     st.subheader("🕸️ Network Graph Visualization")
-    st.info("Showing connections between accounts, devices, IPs, and beneficiaries using Neo4j-compatible graph architecture")
-    
+    st.info("Graph is loaded directly from Neo4j. Refresh or restart does not reset it.")
+    refresh_col, spacer_col = st.columns([1, 5])
+    with refresh_col:
+        refresh_clicked = st.button("Refresh Graph", key="refresh_graph_live")
+    if refresh_clicked:
+        st.rerun()
+
+    graph_payload, graph_error = fetch_backend_graph()
+    if graph_error:
+        st.warning(graph_error)
+    else:
+        render_transaction_graph(graph_payload, "live_neo4j_graph")
+
+    st.markdown("---")
+    st.subheader("🔗 Mule Ring Network Graph")
+    st.caption("Legacy ring visualization restored for investigation workflows.")
+
     rings = detector.detect_mule_rings()
-    if rings:
-        ring_options = [f"Ring {r['ring_id']} ({r['size']} accounts)" for r in rings[:10]]
+    if not rings:
+        st.info("No mule rings detected in current analysis dataset.")
+    else:
+        ring_options = [f"Ring {r['ring_id']} ({r['size']} accounts)" for r in rings[:20]]
         selected_ring_str = st.selectbox("Select Ring to Visualize", ring_options, key="live_graph_ring_selector")
-        
+
         ring_idx = int(selected_ring_str.split()[1].split('(')[0])
         ring = [r for r in rings if r['ring_id'] == ring_idx][0]
-        
-        st.info(f"📊 Visualizing Ring {ring_idx}: {ring['size']} accounts, {len(ring['shared_beneficiaries'])} shared beneficiaries")
-        
-        subgraph = nx.Graph()
-        node_count = 0
-        MAX_NODES = 500
-        
-        for acc in ring['accounts']:
-            if node_count >= MAX_NODES:
-                st.warning(f"⚠️ Graph limited to {MAX_NODES} nodes for demo.")
-                break
-            
-            neighbors = ring['shared_beneficiaries']
-            
-            for neighbor in neighbors[:10]:
-                if node_count < MAX_NODES:
-                    subgraph.add_edge(acc, neighbor)
-                    node_count = len(subgraph.nodes())
-        
-        pos = nx.spring_layout(subgraph, k=0.5, iterations=50)
-        edge_trace = go.Scatter(x=[], y=[], line=dict(width=0.8, color='#94A3B8'), hoverinfo='none', mode='lines')
-        for edge in subgraph.edges():
-            x0, y0 = pos[edge[0]]
-            x1, y1 = pos[edge[1]]
-            edge_trace['x'] += tuple([x0, x1, None])
-            edge_trace['y'] += tuple([y0, y1, None])
-        
-        node_trace = go.Scatter(
-            x=[], y=[], text=[], mode='markers+text', hoverinfo='text',
-            marker=dict(showscale=False, size=10, line_width=2, color=[]),
-            textfont=dict(color="#1F2937", size=13)
+
+        st.info(
+            f"Visualizing Ring {ring_idx}: {ring['size']} accounts, "
+            f"{len(ring['shared_beneficiaries'])} shared beneficiaries"
         )
-        for node in subgraph.nodes():
-            x, y = pos[node]
-            node_trace['x'] += tuple([x])
-            node_trace['y'] += tuple([y])
-            node_trace['text'] += tuple([node[:15]])
-            if node.startswith('ACC_'):
-                node_trace['marker']['color'] += tuple(['#EF4444'])
-            elif node.startswith('BEN_'):
-                node_trace['marker']['color'] += tuple(['#F59E0B'])
-            elif node.startswith('DEV_'):
-                node_trace['marker']['color'] += tuple(['#06B6D4'])
-            elif node.startswith('IP_'):
-                node_trace['marker']['color'] += tuple(['#3B82F6'])
-            else:
-                node_trace['marker']['color'] += tuple(['#60A5FA'])
-        
-        fig = go.Figure(data=[edge_trace, node_trace], layout=go.Layout(
-            title=dict(text=f"Ring {ring_idx} Network", font=dict(color="#0F172A")),
-            showlegend=False, hovermode='closest', margin=dict(b=0,l=0,r=0,t=40), 
-            plot_bgcolor='rgba(255,255,255,0)', paper_bgcolor='rgba(255,255,255,0)',
-            hoverlabel=dict(bgcolor="#0B1220", font=dict(color="#FFFFFF", size=13)),
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False), 
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
-        st.plotly_chart(fig, use_container_width=True, key=f"live_graph_ring_{ring_idx}")
-        
+
+        subgraph = nx.Graph()
+        max_nodes = 180
+        beneficiaries = ring['shared_beneficiaries'][:8]
+        max_accounts = max(1, max_nodes - len(beneficiaries))
+        accounts = ring['accounts'][:max_accounts]
+
+        if len(ring['accounts']) > len(accounts):
+            st.warning(f"Graph limited to {max_nodes} nodes for performance. Showing {len(accounts)} accounts.")
+
+        for acc in accounts:
+            for neighbor in beneficiaries:
+                subgraph.add_edge(acc, neighbor)
+
+        if subgraph.number_of_nodes() == 0:
+            st.info("No edges available for selected ring.")
+        else:
+            # Deterministic bipartite layout keeps rendering fast for large rings.
+            pos = {}
+            account_nodes = [n for n in subgraph.nodes() if str(n).startswith("ACC_")]
+            beneficiary_nodes = [n for n in subgraph.nodes() if str(n).startswith("BEN_")]
+            for idx, node in enumerate(account_nodes):
+                y = 1 - (2 * idx / max(1, len(account_nodes) - 1)) if len(account_nodes) > 1 else 0
+                pos[node] = (-1.0, y)
+            for idx, node in enumerate(beneficiary_nodes):
+                y = 1 - (2 * idx / max(1, len(beneficiary_nodes) - 1)) if len(beneficiary_nodes) > 1 else 0
+                pos[node] = (1.0, y)
+            for node in subgraph.nodes():
+                if node not in pos:
+                    pos[node] = (0.0, 0.0)
+            edge_trace = go.Scatter(x=[], y=[], line=dict(width=0.8, color='#94A3B8'), hoverinfo='none', mode='lines')
+            for edge in subgraph.edges():
+                x0, y0 = pos[edge[0]]
+                x1, y1 = pos[edge[1]]
+                edge_trace['x'] += tuple([x0, x1, None])
+                edge_trace['y'] += tuple([y0, y1, None])
+
+            node_trace = go.Scatter(
+                x=[], y=[], text=[], mode='markers+text', hoverinfo='text',
+                marker=dict(showscale=False, size=10, line_width=2, color=[]),
+                textfont=dict(color="#1F2937", size=13)
+            )
+            for node in subgraph.nodes():
+                x, y = pos[node]
+                node_trace['x'] += tuple([x])
+                node_trace['y'] += tuple([y])
+                node_trace['text'] += tuple([node[:15]])
+                if node.startswith('ACC_'):
+                    node_trace['marker']['color'] += tuple(['#EF4444'])
+                elif node.startswith('BEN_'):
+                    node_trace['marker']['color'] += tuple(['#F59E0B'])
+                elif node.startswith('DEV_'):
+                    node_trace['marker']['color'] += tuple(['#06B6D4'])
+                elif node.startswith('IP_'):
+                    node_trace['marker']['color'] += tuple(['#3B82F6'])
+                else:
+                    node_trace['marker']['color'] += tuple(['#60A5FA'])
+
+            fig = go.Figure(data=[edge_trace, node_trace], layout=go.Layout(
+                title=dict(text=f"Ring {ring_idx} Network", font=dict(color="#0F172A")),
+                showlegend=False, hovermode='closest', margin=dict(b=0, l=0, r=0, t=40),
+                plot_bgcolor='rgba(255,255,255,0)', paper_bgcolor='rgba(255,255,255,0)',
+                hoverlabel=dict(bgcolor="#0B1220", font=dict(color="#FFFFFF", size=13)),
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                height=620))
+            st.plotly_chart(fig, use_container_width=True, key=f"live_graph_ring_{ring_idx}")
+
         st.write(f"**Accounts in Ring:** {', '.join(ring['accounts'][:10])}")
         st.write(f"**Shared Beneficiaries:** {', '.join(ring['shared_beneficiaries'])}")
-        
+
         if st.button("🤖 Explain This Ring with AI", key=f"live_graph_ai_button_{ring_idx}"):
             with st.spinner("Generating AI explanation..."):
                 beneficiaries_str = ', '.join(ring['shared_beneficiaries'][:5])
@@ -1041,10 +1267,15 @@ elif view_mode == "Account Lookup":
                     )
                     if freeze_response is not None and freeze_response.status_code < 300:
                         st.toast("Account frozen")
+                        st.rerun()
                     else:
-                        repo.freeze_account(account_id, reason="High risk account from CyberFin dashboard", performed_by="dashboard_user")
-                        st.toast("Account frozen")
-                    st.rerun()
+                        detail = "Unable to freeze account via backend."
+                        try:
+                            if freeze_response is not None:
+                                detail = freeze_response.json().get("detail", freeze_response.text)
+                        except Exception:
+                            pass
+                        st.error(f"Freeze failed: {detail}")
             else:
                 st.button("🛑 Freeze Account", disabled=True, use_container_width=True)
                 st.caption("Freeze available only for risk score >= 70")
@@ -1125,22 +1356,38 @@ elif view_mode == "Initiate Transaction":
     tx_amount = st.number_input("Amount", min_value=1.0, value=1200.0, step=100.0, key="tx_amount_input")
 
     if tx_from:
-        from_acc = repo.get_account(tx_from)
-        if from_acc:
-            st.markdown(f"Source Account Status: {status_badge(from_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
+        from_status_response = safe_get_json(f"{backend_base_url}/accounts/{tx_from}/status")
+        if from_status_response is not None and from_status_response.status_code < 300:
+            from_status_payload = from_status_response.json()
+            st.markdown(
+                f"Source Account Status: {status_badge(from_status_payload.get('status', 'ACTIVE'))}",
+                unsafe_allow_html=True,
+            )
         else:
-            st.info("Source account not found in account-state table yet.")
+            from_acc = repo.get_account(tx_from)
+            if from_acc:
+                st.markdown(f"Source Account Status: {status_badge(from_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
+            else:
+                st.info("Source account not found in Neo4j yet. It will be created automatically on first transaction.")
 
     if tx_to and tx_to.startswith("ACC_"):
-        to_acc = repo.get_account(tx_to)
-        if to_acc:
-            st.markdown(f"Destination Account Status: {status_badge(to_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
+        to_status_response = safe_get_json(f"{backend_base_url}/accounts/{tx_to}/status")
+        if to_status_response is not None and to_status_response.status_code < 300:
+            to_status_payload = to_status_response.json()
+            st.markdown(
+                f"Destination Account Status: {status_badge(to_status_payload.get('status', 'ACTIVE'))}",
+                unsafe_allow_html=True,
+            )
         else:
-            st.info("Destination account not found in account-state table yet.")
+            to_acc = repo.get_account(tx_to)
+            if to_acc:
+                st.markdown(f"Destination Account Status: {status_badge(to_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
+            else:
+                st.info("Destination account not found in Neo4j yet. It will be created automatically on first transaction.")
 
     if st.button("Create Transaction", key="tx_create_btn", type="primary"):
         response = safe_post_json(
-            f"{backend_base_url}/transactions/process",
+            f"{backend_base_url}/transactions",
             payload={"from_account": tx_from, "to_account": tx_to, "amount": float(tx_amount)},
         )
 
@@ -1150,16 +1397,54 @@ elif view_mode == "Initiate Transaction":
             payload = response.json()
             tx = payload.get("transaction", {})
             st.success(f"PASS: Transaction approved ({tx.get('txn_id')})")
-            st.json(tx)
+            st.session_state.last_tx_receipt = {"txn": tx, "verdict": "PASS"}
         elif response.status_code == 403:
             detail = response.json().get("detail", "Account frozen")
-            st.error(f"BLOCKED: {detail}")
+            if isinstance(detail, dict):
+                message = detail.get("message", "Account frozen")
+                tx = detail.get("transaction", {}) or {}
+            else:
+                message = str(detail)
+                tx = {}
+            st.error(f"BLOCKED: {message}")
+            blocked_tx = {
+                "txn_id": tx.get("txn_id", "N/A"),
+                "from_account": tx.get("from_account", tx_from),
+                "to_account": tx.get("to_account", tx_to),
+                "amount": tx.get("amount", float(tx_amount)),
+                "timestamp": tx.get("timestamp", datetime.utcnow().isoformat()),
+                "status": tx.get("status", "BLOCKED"),
+            }
+            st.session_state.last_tx_receipt = {"txn": blocked_tx, "verdict": "BLOCKED"}
         elif response.status_code == 404:
-            detail = response.json().get("detail", "Source account not found")
+            detail = response.json().get("detail", "Account not found")
             st.warning(detail)
         else:
             detail = response.text
             st.error(f"Transaction failed: {detail}")
+
+    receipt_payload = st.session_state.get("last_tx_receipt")
+    if receipt_payload:
+        receipt_tx = receipt_payload.get("txn", {})
+        receipt_verdict = receipt_payload.get("verdict", "N/A")
+        receipt_pdf = build_receipt_pdf(receipt_tx, receipt_verdict)
+        if receipt_pdf:
+            st.download_button(
+                "Download Receipt (PDF)",
+                data=receipt_pdf,
+                file_name=f"Receipt_{receipt_tx.get('txn_id', 'transaction')}.pdf",
+                mime="application/pdf",
+                key="tx_receipt_download_btn",
+            )
+        else:
+            st.info("Install reportlab to enable PDF receipts: pip install reportlab")
+
+    st.markdown("### Neo4j Graph (Live)")
+    graph_payload, graph_error = fetch_backend_graph()
+    if graph_error:
+        st.warning(graph_error)
+    else:
+        render_transaction_graph(graph_payload, "txn_neo4j_graph")
 
 # Footer
 st.sidebar.markdown("---")

@@ -16,3 +16,4 @@ scipy
 
 neo4j
 supabase
+reportlab
