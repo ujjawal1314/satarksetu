@@ -73,7 +73,7 @@ All 6 Gemini functions are integrated into the dashboard:
 4. Copy the key (starts with `AIzaSy...`)
 
 ### Step 2: Update .env File
-Open `CyberFin/.env` and replace the placeholder:
+Open `SatarkSetu/.env` and replace the placeholder:
 
 ```env
 # Replace this placeholder:

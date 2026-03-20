@@ -1,6 +1,6 @@
-# 🛡️ CyberFin Fusion - Complete System Report
+# 🛡️ SatarkSetu - Complete System Report
 
-**Project Name:** CyberFin Fusion - Unified Cyber-Financial Intelligence Platform  
+**Project Name:** SatarkSetu - Unified Cyber-Financial Intelligence Platform  
 **Tagline:** "Stop the Money Before It Disappears"  
 **Date:** March 2, 2026  
 **Status:** ✅ Production-Ready  
@@ -10,7 +10,7 @@
 
 ## 📋 Executive Summary
 
-CyberFin Fusion is a comprehensive money mule detection system that unifies cyber threat intelligence with financial transaction monitoring. Built in 24 hours for a hackathon, it addresses the critical gap where cyber attacks fuel money laundering but detection systems operate in silos.
+SatarkSetu is a comprehensive money mule detection system that unifies cyber threat intelligence with financial transaction monitoring. Built in 24 hours for a hackathon, it addresses the critical gap where cyber attacks fuel money laundering but detection systems operate in silos.
 
 ### The Problem It Solves
 
@@ -22,7 +22,7 @@ CyberFin Fusion is a comprehensive money mule detection system that unifies cybe
 
 ### The Solution
 
-CyberFin Fusion provides:
+SatarkSetu provides:
 - **Unified Intelligence Layer** - Ingests both cyber events and financial transactions
 - **Graph-Based Network Detection** - Reveals hidden mule rings through network analysis
 - **Pre-Transaction Risk Scoring** - Stops money before it moves (0-100 risk score)
@@ -1291,7 +1291,7 @@ pytest tests/ --cov=. --cov-report=html
 - Fake job offers on Instagram/WhatsApp
 
 
-**How CyberFin Fusion Helps:**
+**How SatarkSetu Helps:**
 
 1. **Early Detection:**
    - Identifies mules before money moves
@@ -1447,7 +1447,7 @@ pytest tests/ --cov=. --cov-report=html
 
 ## 🏆 Competitive Advantages
 
-### What Makes CyberFin Fusion Unique
+### What Makes SatarkSetu Unique
 
 **1. Unified Intelligence:**
 - Only system that truly unifies cyber + financial
@@ -1502,25 +1502,25 @@ pytest tests/ --cov=. --cov-report=html
 - ❌ Miss cyber-recruited mules
 - ❌ No network analysis
 - ❌ Reactive (post-transaction)
-- ✅ CyberFin: Unified, proactive, network-aware
+- ✅ SatarkSetu: Unified, proactive, network-aware
 
 **Cyber Threat Intelligence:**
 - ❌ Don't track financial impact
 - ❌ No money flow analysis
 - ❌ Separate from AML
-- ✅ CyberFin: Integrated, follows the money
+- ✅ SatarkSetu: Integrated, follows the money
 
 **RBI MuleHunter.ai:**
 - ✅ Good mule detection
 - ❌ Limited cyber integration
 - ❌ No network visualization
-- ✅ CyberFin: Extends with cyber + graphs
+- ✅ SatarkSetu: Extends with cyber + graphs
 
 **Manual Investigation:**
 - ❌ Slow (days/weeks)
 - ❌ Labor intensive
 - ❌ Misses patterns
-- ✅ CyberFin: Instant, automated, pattern-aware
+- ✅ SatarkSetu: Instant, automated, pattern-aware
 
 
 ---
@@ -1925,7 +1925,7 @@ uvicorn.run(app, host="0.0.0.0", port=8001)
 
 ### What We Built
 
-CyberFin Fusion is a **complete, production-ready money mule detection system** that:
+SatarkSetu is a **complete, production-ready money mule detection system** that:
 
 ✅ **Unifies cyber and financial intelligence** - Breaking down silos that let mules slip through
 
@@ -2047,7 +2047,7 @@ CyberFin Fusion is a **complete, production-ready money mule detection system** 
 
 ## 🏆 Final Words
 
-**CyberFin Fusion is not just a hackathon project.**
+**SatarkSetu is not just a hackathon project.**
 
 It's a **complete solution** to a **critical problem** that's costing billions and ruining lives.
 
@@ -2073,7 +2073,7 @@ It's what **victims deserve** for protection.
 
 ---
 
-🛡️ **CyberFin Fusion**  
+🛡️ **SatarkSetu**  
 *Unified Cyber-Financial Intelligence Platform*  
 *Stop the Money Before It Disappears*
 

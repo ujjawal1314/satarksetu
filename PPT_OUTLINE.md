@@ -1,7 +1,7 @@
-# CyberFin Fusion - Presentation Outline
+# SatarkSetu - Presentation Outline
 
 ## Slide 1: Title
-**CyberFin Fusion**
+**SatarkSetu**
 *Stop the Money Before It Disappears*
 
 Unified Cyber-Financial Intelligence Platform
@@ -75,13 +75,13 @@ Hackathon: [Event Name]
 [Cyber + Financial] → Unified Intelligence → Real-Time Action
 ```
 
-**CyberFin Fusion = The Bridge**
+**SatarkSetu = The Bridge**
 
 ---
 
 ## Slide 6: Our Solution
 
-**CyberFin Fusion Platform**
+**SatarkSetu Platform**
 
 ✅ **Unified Intelligence Layer**
 - Ingests cyber events + financial transactions in real-time
@@ -159,7 +159,7 @@ Hackathon: [Event Name]
 **🎯 Core Detection (3 files):**
 ```python
 # detection_engine.py - Original detector
-class CyberFinDetector:
+class SatarkSetuDetector:
     def build_graph()           # 23k nodes, 34k edges
     def detect_cyber_anomalies() # 6 rules
     def detect_financial_velocity() # 3 rules
@@ -623,7 +623,7 @@ docker-compose up -d
 
 ## Slide 15: Thank You
 
-**CyberFin Fusion**
+**SatarkSetu**
 *We built what regulators have been begging for.*
 
 **Team:** [Names]
@@ -752,4 +752,4 @@ A: Open-source stack. Gemini API: ~$0.0001 per explanation. Infrastructure: $10-
 - This outline: `PPT_OUTLINE.md`
 - Demo script: `DEMO_CHEAT_SHEET.txt`
 - Technical details: `COMPLETE_SYSTEM_REPORT.md`
-- Code: All files in `CyberFin/` directory
+- Code: All files in `SatarkSetu/` directory

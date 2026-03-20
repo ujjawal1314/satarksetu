@@ -2,7 +2,7 @@
 
 ## 🎯 Summary
 
-All 6 Gemini AI functions are now **fully integrated** into the CyberFin dashboard and working in **fallback mode** with professional pre-written templates.
+All 6 Gemini AI functions are now **fully integrated** into the SatarkSetu dashboard and working in **fallback mode** with professional pre-written templates.
 
 ## ✨ What Was Fixed
 
@@ -182,7 +182,7 @@ criminal charges and frozen account.
 
 ### Run Dashboard
 ```bash
-cd CyberFin
+cd SatarkSetu
 streamlit run dashboard_enhanced.py
 ```
 

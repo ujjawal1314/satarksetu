@@ -259,4 +259,4 @@ Use these files:
 **Result:** Optimized, focused, production-ready project  
 **Next Step:** `streamlit run dashboard_enhanced.py`  
 
-🛡️ **CyberFin Fusion - Clean, Tested, Ready to Win!**
+🛡️ **SatarkSetu - Clean, Tested, Ready to Win!**

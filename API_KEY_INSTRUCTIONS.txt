@@ -11,7 +11,7 @@ STEP 1: GET YOUR API KEY
 
 STEP 2: ADD KEY TO .env FILE
 ═══════════════════════════════════════════════════════════════════════
-1. Open file: CyberFin/.env
+1. Open file: SatarkSetu/.env
 2. Find line: GEMINI_API_KEY=your_api_key_here
 3. Replace with: GEMINI_API_KEY=AIzaSyABC123def456...
    (paste your actual key)
@@ -60,7 +60,7 @@ If not running:
 ═══════════════════════════════════════════════════════════════════════
 Problem: Still seeing "Using fallback explanations"
 Solution: 
-  1. Check .env file exists in CyberFin folder
+  1. Check .env file exists in SatarkSetu folder
   2. Verify key has no spaces or quotes
   3. Restart dashboard completely
   4. Check key is valid at Google AI Studio
@@ -75,7 +75,7 @@ Solution:
 📁 FILE LOCATION
 ═══════════════════════════════════════════════════════════════════════
 Your .env file is here:
-C:\Users\Neil baranwal\Downloads\CyberFin\CyberFin\.env
+C:\Users\Neil baranwal\Downloads\SatarkSetu\SatarkSetu\.env
 
 Open with: Notepad, VS Code, or any text editor
 

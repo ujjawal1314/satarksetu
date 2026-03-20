@@ -116,6 +116,27 @@ class Neo4jService:
             return None
         return dict(rows[0])
 
+    def unfreeze_account(self, account_id: str, risk_score: int = 0) -> Optional[Dict[str, Any]]:
+        rows = self._run(
+            """
+            MERGE (a:Account {account_id: $account_id})
+            ON CREATE SET a.created_at = timestamp(),
+                          a.risk_score = $risk_score
+            ON MATCH SET a.risk_score = coalesce(a.risk_score, $risk_score)
+            SET a.status = 'ACTIVE'
+            REMOVE a.frozen_at
+            RETURN a.account_id AS account_id,
+                   a.status AS status,
+                   a.frozen_at AS frozen_at,
+                   coalesce(a.risk_score, 0) AS risk_score
+            """,
+            account_id=account_id,
+            risk_score=int(risk_score),
+        )
+        if not rows:
+            return None
+        return dict(rows[0])
+
     def _merge_accounts(self, from_id: str, to_id: str, from_risk: int = 0, to_risk: int = 0) -> None:
         self._run(
             """

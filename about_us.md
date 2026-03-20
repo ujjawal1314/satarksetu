@@ -1,76 +1,56 @@
-About CyberFin Fusion
+About SatarkSetu
+
 Who We Are
 
-CyberFin Fusion is a cybersecurity–financial intelligence platform built to combat one of the fastest-growing financial crimes globally: money mule–driven laundering networks.
+SatarkSetu is a fintech-AI initiative focused on early borrower stress detection and contextual loan recovery intelligence for MSME and government-scheme portfolios.
 
-We are a team of developers and security researchers passionate about using graph intelligence and AI to protect financial ecosystems. Our work focuses on bridging the long-standing gap between cyber threat detection and financial fraud monitoring.
+We are building the platform around a simple idea: loan recovery should begin before default, not only after it. By combining borrower behavior, peer context, and regional stress data, we aim to give banks a more useful operational view of repayment risk.
 
 Our Mission
 
-Stop illicit money movement before it happens.
-
-Financial crime today is no longer just transactional — it is cyber-enabled, networked, and coordinated. Traditional systems detect fraud after losses occur. CyberFin Fusion exists to change that.
-
-We aim to give banks, regulators, and investigators a unified intelligence layer that connects cyber compromise signals with financial behavior in real time.
+Help institutions detect borrower distress early, intervene intelligently, and support recovery with more context and less friction.
 
 What We Built
 
-CyberFin Fusion is a unified platform that:
+SatarkSetu is designed as a borrower health platform that:
 
-Links cyber events (phishing, malware, device anomalies) with banking transactions
-
-Builds behavioral graphs across accounts, devices, and beneficiaries
-
-Detects hidden mule networks using community detection algorithms
-
-Generates real-time risk scores before money moves
-
-Explains suspicious patterns using AI-driven investigation narratives
-
-In simple terms:
-We detect coordinated laundering rings that traditional systems cannot see.
+- Tracks behavioral repayment and transaction patterns
+- Estimates borrower health through CBHM
+- Compares borrowers with similar peers
+- Incorporates regional NPA and economic-stress context
+- Produces contextual risk scores and recommendations
+- Supports both bank-side monitoring and borrower transparency
 
 Why It Matters
 
-Money mule networks are the backbone of modern financial crime. Victims are recruited through cyber scams, and stolen funds are rapidly moved across seemingly legitimate accounts.
+Many recovery systems react only after the borrower has already missed payments or slipped into visible distress. That approach is slow, expensive, and often avoidable.
 
-Because cybersecurity and AML systems operate separately, these networks remain invisible until funds are already gone.
-
-CyberFin Fusion unifies these domains — enabling prevention instead of reaction.
+SatarkSetu is built to support an earlier-warning model, where banks can identify stress, prioritize outreach, and choose interventions before the borrower reaches default.
 
 Our Approach
 
-Our platform combines three intelligence layers:
+The platform combines three intelligence layers:
 
-Cyber Intelligence — compromise and behavioral signals
+- Behavioral intelligence from repayment and transaction signals
+- Peer intelligence from similar scheme and loan-size cohorts
+- Regional intelligence from NPA and economic stress patterns
 
-Financial Intelligence — transaction velocity and patterns
-
-Network Intelligence — graph relationships across entities
-
-These signals feed a multi-factor risk engine and graph analytics layer that reveals coordinated activity at scale.
+These signals feed the Continuous Borrower Health Model (CBHM) and produce a contextual view of risk rather than a one-dimensional score.
 
 Built for Real-World Impact
 
-CyberFin Fusion is designed for practical deployment in banking and regulatory environments.
+SatarkSetu is intended for practical use in banking environments where recovery, portfolio monitoring, and borrower support need to work together.
 
 It supports:
 
-Real-time monitoring and alerts
-
-Network-level investigations
-
-Suspicious Activity Report (SAR) generation
-
-Investigator dashboards and visualizations
-
-Our architecture is scalable, explainable, and compatible with existing financial systems.
+- Early warning monitoring
+- Borrower-level drilldowns
+- Recovery prioritization
+- Transparent borrower health communication
+- Explainable contextual risk analysis
 
 Our Vision
 
-We believe the future of financial crime prevention lies in unified cyber-financial intelligence.
+We believe the future of loan recovery is data-driven, proactive, and context-aware.
 
-As digital payments grow and cyber-enabled fraud evolves, institutions need visibility beyond individual transactions — into networks, behaviors, and coordinated activity.
-
-CyberFin Fusion represents a step toward that future:
-a world where illicit funds are stopped before they disappear.
+SatarkSetu represents that direction: a system where borrower stress is understood early enough for institutions to act constructively and efficiently.

@@ -1,157 +1,112 @@
 """
 Tests for backend.py
-Note: These tests use the full dataset and may be slow.
-Mark as slow tests to skip during quick test runs.
 """
+
+import os
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
-import sys
-import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from backend import app
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from backend import app, borrower_df
+
 
 client = TestClient(app)
+KNOWN_BORROWER = borrower_df["borrower_id"].iloc[0]
+
 
 @pytest.mark.slow
 class TestBackendAPI:
-    """Test FastAPI backend endpoints"""
-    
     def test_root_endpoint(self):
-        """Test root endpoint"""
         response = client.get("/")
         assert response.status_code == 200
         data = response.json()
-        assert 'service' in data
-        assert 'status' in data
-    
+        assert "service" in data
+        assert "status" in data
+
     def test_stats_endpoint(self):
-        """Test stats endpoint"""
         response = client.get("/stats")
         assert response.status_code == 200
         data = response.json()
-        
-        assert 'total_events' in data
-        assert 'total_transactions' in data
-        assert 'mule_rings_detected' in data
-        assert 'high_risk_accounts' in data
-    
+        assert "total_borrowers" in data
+        assert "average_health" in data
+        assert "high_risk_borrowers" in data
+
     def test_graph_stats_endpoint(self):
-        """Test graph stats endpoint"""
         response = client.get("/graph/stats")
         assert response.status_code == 200
         data = response.json()
-        
-        assert 'live_graph' in data
-        assert 'detection_graph' in data
-    
-    def test_rings_endpoint(self):
-        """Test rings endpoint"""
-        response = client.get("/rings")
+        assert "graph" in data
+        assert "node_types" in data
+
+    def test_clusters_endpoint(self):
+        response = client.get("/clusters")
         assert response.status_code == 200
         data = response.json()
-        
-        assert 'count' in data
-        assert 'rings' in data
-        assert isinstance(data['rings'], list)
-    
-    def test_flagged_endpoint_default(self):
-        """Test flagged accounts endpoint with default threshold"""
-        response = client.get("/flagged/50")
+        assert "count" in data
+        assert "clusters" in data
+
+    def test_borrowers_endpoint(self):
+        response = client.get("/borrowers?min_risk=45")
         assert response.status_code == 200
         data = response.json()
-        
-        assert 'threshold' in data
-        assert 'count' in data
-        assert 'accounts' in data
-        assert data['threshold'] == 50
-    
-    def test_flagged_endpoint_custom_threshold(self):
-        """Test flagged accounts with custom threshold"""
-        response = client.get("/flagged/70")
+        assert "count" in data
+        assert "borrowers" in data
+        assert isinstance(data["borrowers"], list)
+
+    def test_borrower_analysis_valid(self):
+        response = client.get(f"/borrowers/{KNOWN_BORROWER}")
         assert response.status_code == 200
         data = response.json()
-        
-        assert data['threshold'] == 70
-    
-    def test_account_analysis_valid(self):
-        """Test account analysis for valid account"""
-        response = client.get("/account/ACC_002747")
+        assert data["borrower_id"] == KNOWN_BORROWER
+        assert "risk_score" in data
+        assert "health_score" in data
+        assert "status" in data
+
+    def test_borrower_analysis_invalid(self):
+        response = client.get("/borrowers/BORR_99999")
+        assert response.status_code == 404
+
+    def test_support_action(self):
+        response = client.post(f"/borrowers/{KNOWN_BORROWER}/support")
         assert response.status_code == 200
         data = response.json()
-        
-        assert 'account_id' in data
-        assert 'risk_score' in data
-        assert 'status' in data
-        assert 'cyber_flags' in data
-        assert 'financial_flags' in data
-        assert data['account_id'] == 'ACC_002747'
-    
-    def test_account_analysis_invalid(self):
-        """Test account analysis for invalid account"""
-        response = client.get("/account/ACC_999999")
+        assert data["borrower"]["status"] == "SUPPORT_REQUIRED"
+
+    def test_resolve_action(self):
+        response = client.post(f"/borrowers/{KNOWN_BORROWER}/resolve")
         assert response.status_code == 200
         data = response.json()
-        
-        assert 'error' in data
-    
+        assert data["borrower"]["status"] == "RECOVERING"
+
+    def test_simulate_intervention(self):
+        response = client.post(
+            "/interventions/simulate",
+            json={"borrower_id": KNOWN_BORROWER, "support_type": "RESTRUCTURE_REVIEW", "expected_impact": 10},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["borrower_id"] == KNOWN_BORROWER
+        assert data["projected_risk_score"] <= data["current_risk_score"]
+
     def test_stream_test_endpoint(self):
-        """Test stream test endpoint"""
         response = client.get("/stream/test")
         assert response.status_code == 200
         data = response.json()
-        
-        assert 'message' in data
-        assert 'count' in data
-        assert 'events' in data
-        assert isinstance(data['events'], list)
-    
-    def test_stats_data_types(self):
-        """Test that stats return correct data types"""
-        response = client.get("/stats")
-        data = response.json()
-        
-        assert isinstance(data['total_events'], int)
-        assert isinstance(data['total_transactions'], int)
-        assert isinstance(data['mule_rings_detected'], int)
-        assert isinstance(data['high_risk_accounts'], int)
-    
-    def test_account_risk_score_bounds(self):
-        """Test that risk scores are within bounds"""
-        response = client.get("/account/ACC_002747")
-        if response.status_code == 200:
-            data = response.json()
-            if 'risk_score' in data:
-                assert 0 <= data['risk_score'] <= 100
-    
-    def test_rings_structure(self):
-        """Test rings data structure"""
-        response = client.get("/rings")
-        data = response.json()
-        
-        if len(data['rings']) > 0:
-            ring = data['rings'][0]
-            assert 'ring_id' in ring
-            assert 'accounts' in ring
-            assert 'size' in ring
+        assert "events" in data
+        assert isinstance(data["events"], list)
+
 
 @pytest.mark.slow
 class TestBackendPerformance:
-    """Test backend performance"""
-    
     def test_stats_response_time(self):
-        """Test that stats endpoint responds quickly"""
         import time
+
         start = time.time()
         response = client.get("/stats")
         duration = time.time() - start
-        
         assert response.status_code == 200
-        assert duration < 30.0  # Should respond within 30 seconds (more realistic for large dataset)
-    
-    def test_multiple_requests(self):
-        """Test handling multiple requests"""
-        for _ in range(3):  # Reduced from 5 to 3 for faster testing
-            response = client.get("/stats")
-            assert response.status_code == 200
+        assert duration < 30.0

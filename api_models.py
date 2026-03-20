@@ -1,12 +1,12 @@
 from pydantic import BaseModel, Field
 
 
-class FreezeAccountRequest(BaseModel):
-    reason: str = Field(default="Risk score exceeded threshold")
-    performed_by: str = Field(default="analyst")
+class BorrowerActionRequest(BaseModel):
+    reason: str = Field(default="Borrower risk exceeded monitoring threshold")
+    performed_by: str = Field(default="portfolio_manager")
 
 
-class TransactionRequest(BaseModel):
-    from_account: str
-    to_account: str
-    amount: float
+class InterventionSimulationRequest(BaseModel):
+    borrower_id: str
+    support_type: str = Field(default="RESTRUCTURE_REVIEW")
+    expected_impact: float = Field(default=8.0)

@@ -1,4 +1,4 @@
-# 🎉 CyberFin Fusion - Final Status Report
+# 🎉 SatarkSetu - Final Status Report
 
 ## ✅ ALL SYSTEMS OPERATIONAL
 
@@ -183,7 +183,7 @@ python test_dashboard_integration.py
 
 ### Start Dashboard
 ```bash
-cd CyberFin
+cd SatarkSetu
 streamlit run dashboard_enhanced.py
 ```
 

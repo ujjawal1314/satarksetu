@@ -1,4 +1,4 @@
-# How Graph Database Works in CyberFin
+# How Graph Database Works in SatarkSetu
 
 ## 📊 Data Flow Architecture
 
@@ -110,7 +110,7 @@ Dashboard Restart → Graph Already Exists → Analysis
 ### What is Louvain?
 Louvain is a **community detection algorithm** that finds clusters of highly connected nodes.
 
-**In CyberFin**: Finds groups of accounts that are suspiciously connected (mule rings).
+**In SatarkSetu**: Finds groups of accounts that are suspiciously connected (mule rings).
 
 ### Implementation
 
@@ -231,7 +231,7 @@ RETURN b, accounts
 
 2. **Initialize Detector**
    ```python
-   detector = CyberFinDetectorNeo4j(cyber_df, txn_df, use_neo4j=True)
+   detector = SatarkSetuDetectorNeo4j(cyber_df, txn_df, use_neo4j=True)
    ```
 
 3. **Build Graph**
@@ -262,7 +262,7 @@ RETURN b, accounts
 ```bash
 docker run --name neo4j \
   -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/cyberfin2024 \
+  -e NEO4J_AUTH=neo4j/satarksetu2024 \
   -d neo4j:latest
 ```
 
@@ -270,7 +270,7 @@ docker run --name neo4j \
 - Creates Neo4j container
 - Port 7474: Web UI (http://localhost:7474)
 - Port 7687: Bolt protocol (for Python driver)
-- Password: cyberfin2024
+- Password: satarksetu2024
 
 ### Step 2: Verify Neo4j is Running
 ```bash
@@ -288,7 +288,7 @@ abc123def456   neo4j     Up 2 minutes    0.0.0.0:7474->7474/tcp, 0.0.0.0:7687->7
 USE_NEO4J=true
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=cyberfin2024
+NEO4J_PASSWORD=satarksetu2024
 ```
 
 ### Step 4: Restart Dashboard
@@ -307,7 +307,7 @@ Check sidebar - should show:
 
 ### Check 1: Neo4j Browser
 1. Open http://localhost:7474
-2. Login: neo4j / cyberfin2024
+2. Login: neo4j / satarksetu2024
 3. Run query:
    ```cypher
    MATCH (n) RETURN count(n) as node_count
@@ -320,7 +320,7 @@ from neo4j import GraphDatabase
 
 driver = GraphDatabase.driver(
     "bolt://localhost:7687",
-    auth=("neo4j", "cyberfin2024")
+    auth=("neo4j", "satarksetu2024")
 )
 
 with driver.session() as session:
@@ -377,7 +377,7 @@ Look for:
 ```bash
 # 1. Start Neo4j
 docker run --name neo4j -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/cyberfin2024 -d neo4j:latest
+  -e NEO4J_AUTH=neo4j/satarksetu2024 -d neo4j:latest
 
 # 2. Start Dashboard
 streamlit run dashboard_enhanced.py

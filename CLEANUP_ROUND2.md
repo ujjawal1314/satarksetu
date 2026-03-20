@@ -214,4 +214,4 @@ pytest tests/ -v -m "not slow"
 
 **Next Step:** `streamlit run dashboard_enhanced.py`
 
-🛡️ **CyberFin Fusion - Cleaner, Leaner, Ready to Win!**
+🛡️ **SatarkSetu - Cleaner, Leaner, Ready to Win!**

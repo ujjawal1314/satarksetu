@@ -1,4 +1,4 @@
-# 🏆 CyberFin Fusion - Complete 24-Hour Hackathon Project
+# 🏆 SatarkSetu - Complete 24-Hour Hackathon Project
 
 ## ✅ ALL 5 PHASES COMPLETE!
 
@@ -8,7 +8,7 @@
 
 ## 📊 Project Overview
 
-**CyberFin Fusion** - Unified Cyber-Financial Intelligence Platform
+**SatarkSetu** - Unified Cyber-Financial Intelligence Platform
 *"Stop the Money Before It Disappears"*
 
 **Built in:** 24 hours
@@ -191,7 +191,7 @@ jupyter notebook detection_demo.ipynb
 
 ### Minute 1: Problem & Solution (30s)
 - Show infographic (4 problems)
-- "CyberFin Fusion solves all 4"
+- "SatarkSetu solves all 4"
 - India numbers (19 lakh mules, ₹21k crore)
 
 ### Minute 2: Live Demo (90s)
@@ -270,7 +270,7 @@ jupyter notebook detection_demo.ipynb
 ## 📁 Project Structure
 
 ```
-CyberFin/
+SatarkSetu/
 ├── Data Generation
 │   ├── data_generator.py
 │   ├── cyber_events.csv (20k events)
@@ -485,7 +485,7 @@ python test_all.py
 
 ## 🏆 Final Status
 
-**Project:** CyberFin Fusion
+**Project:** SatarkSetu
 **Status:** ✅ COMPLETE
 **Quality:** Production-ready
 **Testing:** 85% coverage, all passing

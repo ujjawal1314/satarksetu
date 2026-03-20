@@ -2,7 +2,7 @@
 
 ## Overview
 
-CyberFin Fusion now supports **Neo4j graph database** for production-grade graph storage and analysis. The system automatically falls back to NetworkX if Neo4j is not available.
+SatarkSetu now supports **Neo4j graph database** for production-grade graph storage and analysis. The system automatically falls back to NetworkX if Neo4j is not available.
 
 ---
 
@@ -47,9 +47,9 @@ docker run \
 
 #### Step 2: Create Database
 1. Click "New" → "Create Project"
-2. Name it "CyberFin"
+2. Name it "SatarkSetu"
 3. Click "Add" → "Local DBMS"
-4. Name: "CyberFin-Graph"
+4. Name: "SatarkSetu-Graph"
 5. Password: Choose a secure password (remember this!)
 6. Version: Select latest (5.x)
 7. Click "Create"
@@ -61,7 +61,7 @@ docker run \
    - Bolt URL: `bolt://localhost:7687`
    - HTTP URL: `http://localhost:7474`
 
-#### Step 4: Configure CyberFin
+#### Step 4: Configure SatarkSetu
 Edit `.env` file:
 ```env
 NEO4J_URI=bolt://localhost:7687
@@ -94,7 +94,7 @@ Expected output:
 docker run \
     --name neo4j \
     -p 7474:7474 -p 7687:7687 \
-    -e NEO4J_AUTH=neo4j/cyberfin2024 \
+    -e NEO4J_AUTH=neo4j/satarksetu2024 \
     -d \
     neo4j:latest
 ```
@@ -111,14 +111,14 @@ Open browser: http://localhost:7474
 
 Login:
 - Username: `neo4j`
-- Password: `cyberfin2024`
+- Password: `satarksetu2024`
 
-#### Step 4: Configure CyberFin
+#### Step 4: Configure SatarkSetu
 Edit `.env` file:
 ```env
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=cyberfin2024
+NEO4J_PASSWORD=satarksetu2024
 ```
 
 #### Step 5: Test Connection
@@ -128,7 +128,7 @@ python graph_database.py
 
 ---
 
-## Using Neo4j with CyberFin
+## Using Neo4j with SatarkSetu
 
 ### Test the Graph Database Layer
 ```bash

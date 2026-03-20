@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo Starting Neo4j for CyberFin
+echo Starting Neo4j for SatarkSetu
 echo ========================================
 echo.
 
@@ -32,7 +32,7 @@ if not errorlevel 1 (
     echo Creating new Neo4j container...
     docker run --name neo4j ^
       -p 7474:7474 -p 7687:7687 ^
-      -e NEO4J_AUTH=neo4j/cyberfin2024 ^
+      -e NEO4J_AUTH=neo4j/satarksetu2024 ^
       -d neo4j:latest
 )
 
@@ -49,7 +49,7 @@ echo ========================================
 echo Web UI: http://localhost:7474
 echo Bolt URI: bolt://localhost:7687
 echo Username: neo4j
-echo Password: cyberfin2024
+echo Password: satarksetu2024
 echo.
 echo ========================================
 echo Next Steps

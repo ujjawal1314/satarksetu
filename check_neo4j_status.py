@@ -80,14 +80,14 @@ print("\n6. DETECTION ENGINE TEST")
 print("-" * 70)
 try:
     import pandas as pd
-    from detection_engine_neo4j import CyberFinDetectorNeo4j
+    from detection_engine_neo4j import SatarkSetuDetectorNeo4j
     
     # Load minimal data
     cyber_df = pd.read_csv('cyber_events.csv').head(100)
     txn_df = pd.read_csv('transactions.csv').head(100)
     
     print("Creating detector...")
-    detector = CyberFinDetectorNeo4j(cyber_df, txn_df)
+    detector = SatarkSetuDetectorNeo4j(cyber_df, txn_df)
     
     # Check which database is being used
     db_type = type(detector.graph_db).__name__

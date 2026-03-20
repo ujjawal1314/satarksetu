@@ -181,7 +181,7 @@ G = nx.DiGraph()
 
 **Current (NetworkX):**
 ```python
-class CyberFinDetector:
+class SatarkSetuDetector:
     def __init__(self):
         self.graph = nx.DiGraph()
     
@@ -194,7 +194,7 @@ class CyberFinDetector:
 
 **Production (Neo4j):**
 ```python
-class CyberFinDetector:
+class SatarkSetuDetector:
     def __init__(self):
         self.driver = GraphDatabase.driver(...)
     

@@ -1,8 +1,8 @@
-# CyberFin AI Features - Quick Reference
+# SatarkSetu AI Features - Quick Reference
 
 ## 🤖 AI-Powered Analysis Features
 
-CyberFin uses Google Gemini AI to provide intelligent analysis of money mule activities. All features work in **two modes**:
+SatarkSetu uses Google Gemini AI to provide intelligent analysis of money mule activities. All features work in **two modes**:
 
 1. **Fallback Mode** (Current): Pre-written intelligent templates - instant, no API key needed
 2. **Live AI Mode**: Real-time AI generation - requires valid Gemini API key

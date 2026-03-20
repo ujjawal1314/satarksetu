@@ -24,14 +24,14 @@ docker-compose down
 
 ```bash
 # Build image
-docker build -t cyberfin-fusion .
+docker build -t satarksetu-fusion .
 
 # Run dashboard
-docker run -p 8501:8501 --name cyberfin-dashboard cyberfin-fusion
+docker run -p 8501:8501 --name satarksetu-dashboard satarksetu-fusion
 
 # Run backend
-docker run -p 8000:8000 --name cyberfin-backend \
-  --entrypoint python cyberfin-fusion backend.py
+docker run -p 8000:8000 --name satarksetu-backend \
+  --entrypoint python satarksetu-fusion backend.py
 ```
 
 ---
@@ -54,7 +54,7 @@ The `.env` file is automatically loaded.
 ```bash
 docker run -p 8501:8501 \
   -e GEMINI_API_KEY=your_key_here \
-  cyberfin-fusion
+  satarksetu-fusion
 ```
 
 ---
@@ -71,7 +71,7 @@ Data is generated when container starts.
 docker run -p 8501:8501 \
   -v $(pwd)/cyber_events.csv:/app/cyber_events.csv \
   -v $(pwd)/transactions.csv:/app/transactions.csv \
-  cyberfin-fusion
+  satarksetu-fusion
 ```
 
 ### Option 3: Persistent Volume
@@ -79,7 +79,7 @@ docker run -p 8501:8501 \
 ```yaml
 # In docker-compose.yml
 volumes:
-  - cyberfin-data:/app/data
+  - satarksetu-data:/app/data
 ```
 
 ---
@@ -89,7 +89,7 @@ volumes:
 ### 1. Build Optimized Image
 
 ```bash
-docker build -t cyberfin-fusion:prod \
+docker build -t satarksetu-fusion:prod \
   --target application \
   --build-arg PYTHON_VERSION=3.13-slim .
 ```
@@ -98,8 +98,8 @@ docker build -t cyberfin-fusion:prod \
 
 ```dockerfile
 # Run as non-root user
-RUN useradd -m -u 1000 cyberfin
-USER cyberfin
+RUN useradd -m -u 1000 satarksetu
+USER satarksetu
 ```
 
 ### 3. Resource Limits
@@ -144,27 +144,27 @@ services:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cyberfin-dashboard
+  name: satarksetu-dashboard
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: cyberfin
+      app: satarksetu
   template:
     metadata:
       labels:
-        app: cyberfin
+        app: satarksetu
     spec:
       containers:
       - name: dashboard
-        image: cyberfin-fusion:latest
+        image: satarksetu-fusion:latest
         ports:
         - containerPort: 8501
         env:
         - name: GEMINI_API_KEY
           valueFrom:
             secretKeyRef:
-              name: cyberfin-secrets
+              name: satarksetu-secrets
               key: gemini-api-key
         resources:
           requests:
@@ -177,10 +177,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: cyberfin-service
+  name: satarksetu-service
 spec:
   selector:
-    app: cyberfin
+    app: satarksetu
   ports:
   - port: 80
     targetPort: 8501
@@ -198,8 +198,8 @@ spec:
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
 
-docker tag cyberfin-fusion:latest <account>.dkr.ecr.us-east-1.amazonaws.com/cyberfin:latest
-docker push <account>.dkr.ecr.us-east-1.amazonaws.com/cyberfin:latest
+docker tag satarksetu-fusion:latest <account>.dkr.ecr.us-east-1.amazonaws.com/satarksetu:latest
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/satarksetu:latest
 
 # Create ECS task definition and service
 ```
@@ -208,11 +208,11 @@ docker push <account>.dkr.ecr.us-east-1.amazonaws.com/cyberfin:latest
 
 ```bash
 # Build and push
-gcloud builds submit --tag gcr.io/PROJECT_ID/cyberfin
+gcloud builds submit --tag gcr.io/PROJECT_ID/satarksetu
 
 # Deploy
-gcloud run deploy cyberfin \
-  --image gcr.io/PROJECT_ID/cyberfin \
+gcloud run deploy satarksetu \
+  --image gcr.io/PROJECT_ID/satarksetu \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated
@@ -222,14 +222,14 @@ gcloud run deploy cyberfin \
 
 ```bash
 # Push to ACR
-az acr build --registry myregistry --image cyberfin:latest .
+az acr build --registry myregistry --image satarksetu:latest .
 
 # Deploy
 az container create \
   --resource-group myResourceGroup \
-  --name cyberfin \
-  --image myregistry.azurecr.io/cyberfin:latest \
-  --dns-name-label cyberfin \
+  --name satarksetu \
+  --image myregistry.azurecr.io/satarksetu:latest \
+  --dns-name-label satarksetu \
   --ports 8501
 ```
 
@@ -241,32 +241,32 @@ az container create \
 
 ```bash
 # Check logs
-docker logs cyberfin-dashboard
+docker logs satarksetu-dashboard
 
 # Interactive shell
-docker exec -it cyberfin-dashboard /bin/bash
+docker exec -it satarksetu-dashboard /bin/bash
 ```
 
 ### Port Already in Use
 
 ```bash
 # Use different port
-docker run -p 8502:8501 cyberfin-fusion
+docker run -p 8502:8501 satarksetu-fusion
 ```
 
 ### Data Not Persisting
 
 ```bash
 # Use named volume
-docker volume create cyberfin-data
-docker run -v cyberfin-data:/app/data cyberfin-fusion
+docker volume create satarksetu-data
+docker run -v satarksetu-data:/app/data satarksetu-fusion
 ```
 
 ### Memory Issues
 
 ```bash
 # Increase memory limit
-docker run --memory=4g cyberfin-fusion
+docker run --memory=4g satarksetu-fusion
 ```
 
 ---
@@ -313,7 +313,7 @@ services:
 Use nginx or cloud load balancer:
 
 ```nginx
-upstream cyberfin {
+upstream satarksetu {
     server dashboard1:8501;
     server dashboard2:8501;
     server dashboard3:8501;
@@ -322,7 +322,7 @@ upstream cyberfin {
 server {
     listen 80;
     location / {
-        proxy_pass http://cyberfin;
+        proxy_pass http://satarksetu;
     }
 }
 ```
@@ -333,8 +333,8 @@ server {
 
 1. **Use multi-stage builds** (already implemented)
 2. **Run as non-root user** (add to Dockerfile)
-3. **Scan for vulnerabilities**: `docker scan cyberfin-fusion`
-4. **Use specific tags**: `cyberfin-fusion:v1.0.0` not `:latest`
+3. **Scan for vulnerabilities**: `docker scan satarksetu-fusion`
+4. **Use specific tags**: `satarksetu-fusion:v1.0.0` not `:latest`
 5. **Implement health checks** (already done)
 6. **Set resource limits** (see examples above)
 7. **Use secrets management** (not .env in production)
@@ -348,14 +348,14 @@ server {
 
 ```bash
 # Build
-docker build -t cyberfin-fusion .
+docker build -t satarksetu-fusion .
 
 # Run dashboard
-docker run -d -p 8501:8501 --name dashboard cyberfin-fusion
+docker run -d -p 8501:8501 --name dashboard satarksetu-fusion
 
 # Run backend
 docker run -d -p 8000:8000 --name backend \
-  --entrypoint python cyberfin-fusion backend.py
+  --entrypoint python satarksetu-fusion backend.py
 
 # View logs
 docker logs -f dashboard

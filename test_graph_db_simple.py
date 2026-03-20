@@ -1,30 +1,22 @@
-"""Simple test to show graph database is working"""
+"""Simple test showing borrower graph construction works."""
+
 import pandas as pd
-from detection_engine_neo4j import CyberFinDetectorNeo4j
+
+from detection_engine_neo4j import SatarkSetuDetectorNeo4j
+
 
 print("=" * 60)
-print("GRAPH DATABASE SIMPLE TEST")
+print("BORROWER GRAPH SIMPLE TEST")
 print("=" * 60)
 
-# Load small dataset
-cyber = pd.read_csv('cyber_events.csv').head(100)
-txn = pd.read_csv('transactions.csv').head(100)
+borrowers = pd.read_csv("borrowers.csv").head(50)
+transactions = pd.read_csv("loan_transactions.csv").head(200)
+regional = pd.read_csv("regional_context.csv")
 
-print(f"\nLoaded {len(cyber)} cyber events and {len(txn)} transactions")
-
-# Create detector with NetworkX
-print("\nInitializing detector with NetworkX...")
-detector = CyberFinDetectorNeo4j(cyber, txn, use_neo4j=False)
-
-# Build graph
-print("\nBuilding graph...")
+detector = SatarkSetuDetectorNeo4j(borrowers, transactions, regional_df=regional, use_neo4j=False)
 stats = detector.build_graph()
 
-print("\n" + "=" * 60)
-print("RESULT")
-print("=" * 60)
-print(f"✅ Graph Database: {stats['database']}")
-print(f"✅ Nodes: {stats['nodes']:,}")
-print(f"✅ Edges: {stats['edges']:,}")
-print("\n✅ Graph database IS working!")
-print("=" * 60)
+print(f"Database: {stats['database']}")
+print(f"Nodes: {stats['nodes']}")
+print(f"Edges: {stats['edges']}")
+print("✅ Borrower graph build works")

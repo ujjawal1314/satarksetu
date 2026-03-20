@@ -1,4 +1,4 @@
-# 🧪 CyberFin Fusion - Testing Guide
+# 🧪 SatarkSetu - Testing Guide
 
 ## ✅ Comprehensive Test Suite Created!
 
@@ -256,9 +256,9 @@ pytest tests/test_detection_engine.py -v
 ```
 
 ### Issue: Import errors
-**Solution:** Ensure you're in the CyberFin directory
+**Solution:** Ensure you're in the SatarkSetu directory
 ```bash
-cd CyberFin
+cd SatarkSetu
 pytest tests/
 ```
 

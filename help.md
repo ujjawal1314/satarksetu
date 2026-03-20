@@ -1,77 +1,48 @@
-Help & FAQ — CyberFin Fusion
-1. What is CyberFin Fusion?
+Help & FAQ — SatarkSetu
 
-CyberFin Fusion is a unified cyber-financial intelligence platform that detects money mule networks by linking cybersecurity events (such as phishing or device anomalies) with financial transactions in real time.
-It identifies coordinated laundering activity before funds are moved or withdrawn.
+1. What is SatarkSetu?
+
+SatarkSetu is an AI-powered borrower health and early recovery platform for MSME and government-scheme loan portfolios. It helps banks detect financial stress before EMI default by combining borrower behavior, peer benchmarking, and regional risk context.
 
 2. What problem does the platform solve?
 
-Traditional cybersecurity systems detect account compromise, and AML systems detect suspicious transactions — but they operate separately.
-CyberFin Fusion connects these signals and analyzes relationships between accounts, devices, and beneficiaries to uncover hidden mule networks that would otherwise remain invisible.
+Traditional recovery workflows start after payment failure or after an account becomes visibly distressed. SatarkSetu is designed to identify borrower stress earlier so banks can intervene proactively instead of relying only on late-stage enforcement.
 
-3. How does CyberFin Fusion detect mule accounts?
+3. What is CBHM?
 
-The platform uses three layers of analysis:
+CBHM stands for Continuous Borrower Health Model. It is the core intelligence framework used by SatarkSetu to estimate borrower financial health using repayment patterns, cash-flow behavior, peer comparisons, and regional stress indicators.
 
-Cyber anomalies (malware, phishing, unusual logins)
+4. What data does SatarkSetu analyze?
 
-Financial behavior (rapid transfers, threshold amounts)
+The platform is designed to work with:
 
-Network relationships (shared devices, beneficiaries, IPs)
+- Borrower profiles
+- Loan scheme and loan amount information
+- Repayment behavior
+- Account balance and transaction trends
+- Peer cohort benchmarks
+- Regional NPA or economic stress indicators
 
-These signals are combined into a graph model and analyzed using community detection algorithms to identify coordinated mule rings.
+5. What does the health score mean?
 
-4. What is a mule network or mule ring?
+Each borrower receives a contextual score on a 0-100 range. Lower values indicate healthier borrower behavior, while higher values indicate elevated stress and greater risk of repayment deterioration or default.
 
-A mule network is a group of bank accounts used together to move or launder illicit funds.
-While individual accounts may appear legitimate, their shared connections — such as common devices, IP addresses, or transaction paths — reveal coordinated activity.
-CyberFin Fusion detects these hidden relationships.
+6. Why does peer comparison matter?
 
-5. What does the risk score mean?
+A borrower should not be judged in isolation. SatarkSetu compares borrowers with peers of similar scheme, size, and category so the bank can distinguish normal cohort behavior from borrower-specific deterioration.
 
-Each account receives a risk score from 0–100 based on cyber, financial, and network indicators.
+7. Why does regional context matter?
 
-70–100: Critical risk (immediate action recommended)
+Regional conditions affect borrower behavior. If a district or state is under broader economic pressure, the system should account for that before classifying a borrower as high risk. This reduces false alarms and improves intervention prioritization.
 
-50–69: High risk (urgent investigation)
+8. Who uses the bank dashboard?
 
-30–49: Medium risk (monitor)
+The bank dashboard is intended for officers, recovery teams, analysts, and portfolio managers who need a structured view of borrower health, contextual risk, and recommended action paths.
 
-Below 30: Low risk
+9. What does the borrower dashboard show?
 
-The score indicates likelihood of mule involvement, not guilt.
+The borrower-facing dashboard is designed to provide a simpler explanation of loan health, peer comparison, and guidance so borrowers understand their position and can take corrective action earlier.
 
-6. How does the AI explanation feature work?
+10. What is the main benefit of SatarkSetu?
 
-CyberFin Fusion uses an AI analysis module to translate technical detection signals into clear investigation insights.
-It can explain suspicious patterns, describe likely recruitment scenarios, suggest investigation steps, and generate compliance-ready reports such as SAR narratives.
-
-7. Does the system work in real time?
-
-Yes. The platform supports real-time event ingestion and streaming analysis.
-As new cyber or transaction events arrive, the graph and risk scores update dynamically, allowing alerts before funds are moved further.
-
-8. Can CyberFin Fusion integrate with existing banking or AML systems?
-
-Yes. The platform exposes standard REST APIs and can ingest data from cybersecurity tools, transaction monitoring systems, or banking databases.
-It is designed as an intelligence layer that augments existing infrastructure rather than replacing it.
-
-9. How does CyberFin Fusion reduce false positives?
-
-Traditional systems evaluate accounts in isolation.
-CyberFin Fusion validates alerts using network context — confirming whether an account is connected to other suspicious entities.
-This relationship-based analysis significantly improves detection confidence and reduces unnecessary alerts.
-
-10. Who is CyberFin Fusion designed for?
-
-The platform is intended for:
-
-Banks and payment providers
-
-Financial crime investigators
-
-AML and cybersecurity teams
-
-Regulators and compliance units
-
-It supports both operational monitoring and strategic investigation of laundering networks.
+The main benefit is shifting recovery from reactive collections to proactive support. The platform helps banks reduce NPAs, prioritize outreach, and make borrower-risk assessment more transparent and explainable.

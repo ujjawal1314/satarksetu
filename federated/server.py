@@ -7,7 +7,7 @@ if __name__ == "__main__":
         min_available_clients=2,
     )
     
-    print("🛡️ CyberFin FL Server - GNN Mode Active 🕸️")
+    print("🛡️ SatarkSetu FL Server - GNN Mode Active 🕸️")
     print("Waiting for Banks to connect their Graphs...")
     
     fl.server.start_server(

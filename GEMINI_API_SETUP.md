@@ -11,7 +11,7 @@
 
 ### Step 2: Configure the .env File
 
-1. Open the file: `CyberFin/.env`
+1. Open the file: `SatarkSetu/.env`
 2. Find this line:
    ```
    GEMINI_API_KEY=your_api_key_here
@@ -170,13 +170,13 @@ GEMINI_API_KEY=AIzaSy...
 ## 📝 Example .env File
 
 ```bash
-# CyberFin Fusion - Environment Configuration
+# SatarkSetu - Environment Configuration
 
 # Gemini API Key
 GEMINI_API_KEY=AIzaSyABC123def456GHI789jkl012MNO345pqr
 
 # Optional: Add other config here in future
-# DATABASE_URL=postgresql://localhost/cyberfin
+# DATABASE_URL=postgresql://localhost/satarksetu
 # REDIS_URL=redis://localhost:6379
 ```
 
@@ -236,7 +236,7 @@ python test_gemini.py
 
 ## 🎉 You're All Set!
 
-Your CyberFin Fusion system now has:
+Your SatarkSetu system now has:
 - ✅ Real Gemini AI integration
 - ✅ Natural language explanations
 - ✅ Enhanced insights
@@ -255,4 +255,4 @@ streamlit run dashboard_enhanced.py
 - Gemini Docs: https://ai.google.dev/gemini-api/docs
 - Project Docs: See README.md
 
-🛡️ **CyberFin Fusion - Now with AI Power!**
+🛡️ **SatarkSetu - Now with AI Power!**

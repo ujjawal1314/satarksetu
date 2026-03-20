@@ -1,30 +1,30 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from __future__ import annotations
+
+from datetime import datetime
+import json
+import time
+from typing import List
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-import pandas as pd
 import networkx as nx
-from datetime import datetime
-import time
-import json
-from typing import List
-from uuid import uuid4
+import pandas as pd
 
-from detection_engine import CyberFinDetector
-from detection_engine_neo4j import CyberFinDetectorNeo4j
-from repositories import AccountRepository
-from api_models import FreezeAccountRequest, TransactionRequest
-from neo4j_service import get_neo4j_service
+from api_models import BorrowerActionRequest, InterventionSimulationRequest
+from detection_engine import SatarkSetuDetector
+from repositories import BorrowerRepository
 
-# Load environment variables from .env when running locally.
+
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
 
-app = FastAPI(title="CyberFin Fusion - Streaming Backend")
 
-# CORS
+app = FastAPI(title="SatarkSetu - Borrower Health Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,157 +33,195 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global state
-G = nx.Graph()  # Live graph
 active_connections: List[WebSocket] = []
-repo = AccountRepository()
-neo4j_service = get_neo4j_service()
+repo = BorrowerRepository()
 
-# Load data
-cyber_df = pd.read_csv("cyber_events.csv", parse_dates=["timestamp"])
-txn_df = pd.read_csv("transactions.csv", parse_dates=["timestamp"])
+borrower_df = pd.read_csv("borrowers.csv")
+txn_df = pd.read_csv("loan_transactions.csv", parse_dates=["timestamp"])
+regional_df = pd.read_csv("regional_context.csv")
 
-# Initialize detector with fallback (Neo4j auth failure should not crash backend)
-try:
-    detector = CyberFinDetector(cyber_df, txn_df)
-    detector.build_graph()
-    print("✅ Detector mode: Neo4j direct")
-except Exception as exc:
-    print(f"⚠️ Neo4j direct detector failed ({exc}). Falling back to local graph mode.")
-    detector = CyberFinDetectorNeo4j(cyber_df, txn_df, use_neo4j=False)
-    detector.build_graph()
-    print("✅ Detector mode: Local NetworkX fallback")
-
-print(f"✅ Backend initialized: {len(cyber_df)} events, {len(txn_df)} transactions")
+detector = SatarkSetuDetector(borrower_df, txn_df, regional_df)
+graph_stats = detector.build_graph()
+graph = detector.get_networkx_graph()
 
 
-def get_detection_graph() -> nx.Graph:
-    if hasattr(detector, "graph"):
-        return detector.graph
-    if hasattr(detector, "get_networkx_graph"):
-        return detector.get_networkx_graph()
-    return nx.Graph()
+def sync_borrower(borrower_id: str, default_status: str = "ACTIVE") -> dict:
+    analysis = detector.analyze_borrower(borrower_id).as_dict()
+    row = borrower_df[borrower_df["borrower_id"] == borrower_id]
+    if row.empty:
+        raise HTTPException(status_code=404, detail="Borrower not found")
+    repo.upsert_borrower_risk(
+        borrower_id,
+        risk_score=analysis["risk_score"],
+        health_score=analysis["health_score"],
+        name=str(row.iloc[0]["name"]),
+        default_status=default_status,
+    )
+    return analysis
 
 
-def bootstrap_accounts() -> None:
-    """Ensure accounts table has baseline records for demo and persistence."""
-    accounts = set(cyber_df["account_id"].unique()).union(set(txn_df["account_id"].unique()))
-    for acc in accounts:
-        repo.ensure_account(str(acc))
-        risk = detector.calculate_risk_score(str(acc))
-        repo.upsert_account_risk(str(acc), int(risk))
+def merged_borrower_record(borrower_id: str) -> dict:
+    analysis = sync_borrower(borrower_id)
+    repo_row = repo.get_borrower(borrower_id) or repo.ensure_borrower(borrower_id, name=analysis["name"])
+    profile = borrower_df[borrower_df["borrower_id"] == borrower_id].iloc[0].to_dict()
+    profile.update(analysis)
+    profile["status"] = repo_row.get("status", "ACTIVE")
+    return profile
 
 
-# Keep startup fast/reliable for demos. Accounts are created/updated on-demand.
-# bootstrap_accounts()
-
-
-def get_account_status(account_id: str):
-    account = repo.get_account(account_id)
-    if not account:
-        return None
-    return account.get("status", "ACTIVE")
-
-
-def sync_risk(account_id: str, default_status: str = "ACTIVE") -> int:
-    risk = int(detector.calculate_risk_score(account_id))
-    repo.upsert_account_risk(account_id, risk, default_status=default_status)
-    return risk
-
-
-def require_neo4j():
-    if not neo4j_service.ensure_available():
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Neo4j unavailable. Verify NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD and Neo4j service status. "
-                "If backend runs in Docker, localhost points to the container; use host.docker.internal:7687 "
-                "or a Neo4j service name on the same Docker network."
-            ),
-        )
-
-
-# Streaming simulation
 def stream_events():
-    """Generator that simulates real-time event streaming"""
-    event_count = 0
-
-    # Stream cyber events
-    for _, row in cyber_df.iterrows():
-        # Add to live graph
-        G.add_node(row["account_id"], type="account")
-        G.add_node(row["ip"], type="ip")
-        G.add_node(row["device"], type="device")
-        G.add_edge(row["account_id"], row["ip"], relation="login")
-        G.add_edge(row["account_id"], row["device"], relation="device")
-
+    top_borrowers = detector.get_flagged_borrowers(threshold=50)[:80]
+    for item in top_borrowers:
         event = {
-            "type": "cyber_event",
-            "timestamp": row["timestamp"].isoformat(),
-            "account_id": row["account_id"],
-            "event_type": row["event_type"],
-            "ip": row["ip"],
-            "device": row["device"],
-            "location": row["location"],
-            "graph_nodes": G.number_of_nodes(),
-            "graph_edges": G.number_of_edges(),
+            "type": "borrower_alert",
+            "timestamp": datetime.utcnow().isoformat(),
+            "borrower_id": item["borrower_id"],
+            "name": item["name"],
+            "risk_score": item["risk_score"],
+            "health_score": item["health_score"],
+            "risk_level": item["risk_level"],
+            "region": item["region"],
+            "loan_scheme": item["loan_scheme"],
+            "behavioral_flags": item["behavioral_flags"],
+            "contextual_flags": item["contextual_flags"],
         }
-
-        event_count += 1
-        if event_count % 100 == 0:
-            time.sleep(0.05)
-
-        yield f"data: {json.dumps(event)}\\n\\n"
-
-    # Stream transactions
-    for _, row in txn_df.iterrows():
-        G.add_edge(row["account_id"], row["beneficiary"], amount=float(row["amount"]), relation="transaction")
-
-        risk_score = detector.calculate_risk_score(row["account_id"])
-        alert = risk_score >= 70
-
-        event = {
-            "type": "transaction",
-            "timestamp": row["timestamp"].isoformat(),
-            "account_id": row["account_id"],
-            "amount": float(row["amount"]),
-            "beneficiary": row["beneficiary"],
-            "txn_type": row["type"],
-            "risk_score": risk_score,
-            "alert": alert,
-            "graph_nodes": G.number_of_nodes(),
-            "graph_edges": G.number_of_edges(),
-        }
-
-        event_count += 1
-        if event_count % 50 == 0:
-            time.sleep(0.05)
-
-        yield f"data: {json.dumps(event)}\\n\\n"
+        time.sleep(0.02)
+        yield f"data: {json.dumps(event)}\n\n"
 
 
 @app.get("/")
 def root():
     return {
-        "service": "CyberFin Fusion Streaming Backend",
+        "service": "SatarkSetu Borrower Health Backend",
         "status": "active",
-        "version": "1.0",
+        "version": "2.0",
         "endpoints": {
-            "stream": "/stream (SSE)",
-            "websocket": "/ws",
             "stats": "/stats",
-            "graph": "/graph",
-            "freeze_account": "POST /accounts/{account_id}/freeze",
-            "process_transaction": "POST /transactions",
-            "process_transaction_legacy": "POST /transactions/process",
-            "demo_suspicious": "POST /transactions/demo-suspicious",
+            "borrowers": "/borrowers",
+            "borrower_analysis": "/borrowers/{borrower_id}",
+            "stress_clusters": "/clusters",
+            "graph_stats": "/graph/stats",
+            "support_action": "POST /borrowers/{borrower_id}/support",
+            "resolve_action": "POST /borrowers/{borrower_id}/resolve",
+            "simulate_intervention": "POST /interventions/simulate",
+            "stream": "/stream",
         },
+    }
+
+
+@app.get("/stats")
+def stats():
+    summary = detector.portfolio_summary()
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        **summary,
+        "regional_hotspots": len(detector.detect_stress_clusters()),
+        "watchlist_borrowers": repo.status_count("WATCHLIST"),
+        "support_required_borrowers": repo.status_count("SUPPORT_REQUIRED"),
+        "recovering_borrowers": repo.status_count("RECOVERING"),
+        "graph": {"nodes": graph.number_of_nodes(), "edges": graph.number_of_edges()},
+    }
+
+
+@app.get("/graph/stats")
+def graph_stats_endpoint():
+    return {
+        "graph": {
+            "nodes": graph.number_of_nodes(),
+            "edges": graph.number_of_edges(),
+            "density": nx.density(graph) if graph.number_of_nodes() > 1 else 0.0,
+        },
+        "node_types": graph_stats["node_types"],
+    }
+
+
+@app.get("/clusters")
+def stress_clusters():
+    clusters = detector.detect_stress_clusters()
+    return {"count": len(clusters), "clusters": clusters}
+
+
+@app.get("/borrowers")
+def borrowers(min_risk: int = 0, limit: int = 100):
+    records = []
+    for borrower_id in borrower_df["borrower_id"]:
+        analysis = sync_borrower(borrower_id)
+        if analysis["risk_score"] < min_risk:
+            continue
+        repo_row = repo.get_borrower(borrower_id) or {}
+        records.append({**analysis, "status": repo_row.get("status", "ACTIVE")})
+    records.sort(key=lambda row: row["risk_score"], reverse=True)
+    return {"count": len(records), "borrowers": records[:limit]}
+
+
+@app.get("/borrowers/{borrower_id}")
+def borrower_analysis(borrower_id: str):
+    if borrower_id not in set(borrower_df["borrower_id"]):
+        raise HTTPException(status_code=404, detail="Borrower not found")
+
+    record = merged_borrower_record(borrower_id)
+    txns = txn_df[txn_df["borrower_id"] == borrower_id].sort_values("timestamp")
+    record["recent_transactions"] = txns.tail(12).to_dict("records")
+    record["graph_degree"] = graph.degree(borrower_id) if borrower_id in graph else 0
+    return record
+
+
+@app.get("/borrowers/{borrower_id}/status")
+def borrower_status(borrower_id: str):
+    borrower = repo.get_borrower(borrower_id)
+    if not borrower:
+        sync_borrower(borrower_id)
+        borrower = repo.get_borrower(borrower_id)
+    if not borrower:
+        raise HTTPException(status_code=404, detail="Borrower not found")
+    return borrower
+
+
+@app.post("/borrowers/{borrower_id}/support")
+def mark_support_required(borrower_id: str, req: BorrowerActionRequest | None = None):
+    analysis = sync_borrower(borrower_id, default_status="SUPPORT_REQUIRED")
+    request = req or BorrowerActionRequest()
+    borrower = repo.set_status(
+        borrower_id,
+        status="SUPPORT_REQUIRED",
+        reason=request.reason,
+        performed_by=request.performed_by,
+    )
+    return {"borrower": borrower, "analysis": analysis, "message": "Borrower marked for support review"}
+
+
+@app.post("/borrowers/{borrower_id}/resolve")
+def mark_recovering(borrower_id: str, req: BorrowerActionRequest | None = None):
+    analysis = sync_borrower(borrower_id, default_status="RECOVERING")
+    request = req or BorrowerActionRequest(reason="Borrower moved to recovery monitoring")
+    borrower = repo.set_status(
+        borrower_id,
+        status="RECOVERING",
+        reason=request.reason,
+        performed_by=request.performed_by,
+    )
+    return {"borrower": borrower, "analysis": analysis, "message": "Borrower moved to recovery monitoring"}
+
+
+@app.post("/interventions/simulate")
+def simulate_intervention(req: InterventionSimulationRequest):
+    if req.borrower_id not in set(borrower_df["borrower_id"]):
+        raise HTTPException(status_code=404, detail="Borrower not found")
+    current = detector.analyze_borrower(req.borrower_id).as_dict()
+    improved_risk = max(0, current["risk_score"] - int(round(req.expected_impact)))
+    improved_health = min(100, current["health_score"] + int(round(req.expected_impact)))
+    return {
+        "borrower_id": req.borrower_id,
+        "support_type": req.support_type,
+        "current_risk_score": current["risk_score"],
+        "projected_risk_score": improved_risk,
+        "current_health_score": current["health_score"],
+        "projected_health_score": improved_health,
     }
 
 
 @app.get("/stream")
 def stream():
-    """Server-Sent Events (SSE) endpoint for real-time streaming"""
     return StreamingResponse(
         stream_events(),
         media_type="text/event-stream",
@@ -191,283 +229,45 @@ def stream():
     )
 
 
-@app.get("/stats")
-def get_stats():
-    rings = detector.detect_mule_rings()
-    flagged = detector.get_flagged_accounts(threshold=50)
-    detection_graph = get_detection_graph()
-
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "total_events": len(cyber_df),
-        "total_transactions": len(txn_df),
-        "total_accounts": cyber_df["account_id"].nunique(),
-        "mule_rings_detected": len(rings),
-        "high_risk_accounts": len(flagged),
-        "graph": {"nodes": G.number_of_nodes(), "edges": G.number_of_edges()},
-        "detection_graph": {
-            "nodes": detection_graph.number_of_nodes(),
-            "edges": detection_graph.number_of_edges(),
-        },
-        "frozen_accounts": repo.frozen_accounts_count(),
-        "blocked_transactions": repo.blocked_transactions_count(),
-    }
-
-
-@app.get("/graph/stats")
-def get_graph_stats():
-    detection_graph = get_detection_graph()
-    return {
-        "live_graph": {
-            "nodes": G.number_of_nodes(),
-            "edges": G.number_of_edges(),
-            "density": nx.density(G) if G.number_of_nodes() > 0 else 0,
-        },
-        "detection_graph": {
-            "nodes": detection_graph.number_of_nodes(),
-            "edges": detection_graph.number_of_edges(),
-            "density": nx.density(detection_graph) if detection_graph.number_of_nodes() > 0 else 0,
-        },
-    }
-
-
-@app.get("/rings")
-def get_rings():
-    rings = detector.detect_mule_rings()
-    return {"count": len(rings), "rings": rings[:20]}
-
-
-@app.get("/flagged/{threshold}")
-def get_flagged(threshold: int = 50):
-    flagged = detector.get_flagged_accounts(threshold=threshold)
-    return {"threshold": threshold, "count": len(flagged), "accounts": flagged[:50]}
-
-
-@app.get("/account/{account_id}")
-def analyze_account(account_id: str):
-    if account_id not in cyber_df["account_id"].values:
-        return {"error": "Account not found"}
-
-    risk_score = sync_risk(account_id)
-    cyber_flags = detector.detect_cyber_anomalies(account_id)
-    fin_flags = detector.detect_financial_velocity(account_id)
-    if neo4j_service.available:
-        account = neo4j_service.get_account(account_id)
-        if not account:
-            repo_account = repo.get_account(account_id) or repo.ensure_account(account_id)
-            account = {"status": repo_account.get("status", "ACTIVE")}
-    else:
-        account = repo.get_account(account_id) or repo.ensure_account(account_id)
-    detection_graph = get_detection_graph()
-
-    recent_cyber = cyber_df[cyber_df["account_id"] == account_id].tail(10)
-    recent_txns = txn_df[txn_df["account_id"] == account_id].tail(10)
-
-    return {
-        "account_id": account_id,
-        "risk_score": risk_score,
-        "status": account.get("status", "ACTIVE"),
-        "risk_bucket": "critical" if risk_score >= 70 else "high" if risk_score >= 50 else "low",
-        "cyber_flags": cyber_flags,
-        "financial_flags": fin_flags,
-        "recent_events": len(recent_cyber),
-        "recent_transactions": len(recent_txns),
-        "graph_degree": detection_graph.degree(account_id) if account_id in detection_graph else 0,
-    }
-
-
-@app.get("/accounts")
-def list_accounts():
-    return {"accounts": repo.list_accounts()}
-
-
-@app.get("/accounts/{account_id}/status")
-def account_status(account_id: str):
-    if neo4j_service.available:
-        account = neo4j_service.get_account(account_id)
-    else:
-        account = repo.get_account(account_id)
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-    return {
-        "account_id": account_id,
-        "status": account.get("status", "ACTIVE"),
-        "risk_score": int(account.get("risk_score", 0)),
-    }
-
-
-@app.post("/accounts/{account_id}/freeze")
-def freeze_account(account_id: str, req: FreezeAccountRequest | None = None):
-    require_neo4j()
-    freeze_req = req or FreezeAccountRequest()
-    risk_score = int(detector.calculate_risk_score(account_id)) if account_id in cyber_df["account_id"].values else 0
-
-    account = neo4j_service.freeze_account(account_id, risk_score=risk_score)
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found in Neo4j graph")
-
-    # Keep relational state in sync for existing non-graph dashboards/metrics.
-    repo.freeze_account(
-        account_id,
-        reason=freeze_req.reason,
-        performed_by=freeze_req.performed_by,
-    )
-    return {"account": account, "message": "Account frozen"}
-
-
-@app.post("/accounts/{account_id}/unfreeze")
-def unfreeze_account(account_id: str, req: FreezeAccountRequest):
-    if account_id not in cyber_df["account_id"].values:
-        raise HTTPException(status_code=404, detail="Account not found")
-    account = repo.unfreeze_account(account_id, reason=req.reason, performed_by=req.performed_by)
-    return {"account": account, "message": "Account unfrozen"}
-
-
-@app.post("/transactions")
-@app.post("/transactions/process")
-def process_transaction(req: TransactionRequest):
-    require_neo4j()
-
-    risk_score = int(detector.calculate_risk_score(req.from_account)) if req.from_account in cyber_df["account_id"].values else 0
-    result = neo4j_service.create_transaction(
-        from_id=req.from_account,
-        to_id=req.to_account,
-        amount=float(req.amount),
-        txn_id=f"TXN_{uuid4().hex[:12].upper()}",
-        risk_score=risk_score,
-    )
-
-    txn_payload = result["transaction"]
-    repo.log_transaction(txn_payload)
-    repo.upsert_account_risk(req.from_account, risk_score)
-
-    if result["blocked"]:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "message": result.get("reason") or "Source account is frozen",
-                "transaction": txn_payload,
-            },
+@app.get("/stream/test")
+def stream_test():
+    events = []
+    for item in detector.get_flagged_borrowers(threshold=60)[:5]:
+        events.append(
+            {
+                "borrower_id": item["borrower_id"],
+                "risk_score": item["risk_score"],
+                "risk_level": item["risk_level"],
+                "region": item["region"],
+            }
         )
-
-    return {"transaction": txn_payload}
-
-
-@app.get("/graph")
-def get_graph():
-    require_neo4j()
-    return neo4j_service.fetch_graph()
-
-
-@app.post("/transactions/demo-suspicious")
-def demo_suspicious_transaction():
-    suspicious_account = "ACC_002747" if "ACC_002747" in cyber_df["account_id"].values else str(cyber_df["account_id"].iloc[0])
-    risk_score = sync_risk(suspicious_account)
-
-    if risk_score < 70:
-        risk_score = 82
-        repo.upsert_account_risk(suspicious_account, risk_score)
-
-    if neo4j_service.available:
-        account_status = neo4j_service.get_account_status(suspicious_account) or "ACTIVE"
-    else:
-        account_status = get_account_status(suspicious_account)
-    txn_status = "APPROVED" if account_status != "FROZEN" else "BLOCKED"
-
-    txn_payload = {
-        "txn_id": f"TXN_DEMO_{uuid4().hex[:10].upper()}",
-        "from_account": suspicious_account,
-        "to_account": "BEN_DEMO_HIGH_RISK",
-        "amount": 49999.00,
-        "timestamp": datetime.utcnow().isoformat(),
-        "status": txn_status,
-        "risk_score": risk_score,
-    }
-    repo.log_transaction(txn_payload)
-
-    return {
-        "transaction": txn_payload,
-        "result": "blocked" if txn_status == "BLOCKED" else "created",
-        "message": "Transaction blocked: account is frozen" if txn_status == "BLOCKED" else "Suspicious transaction created",
-        "flagged_account": {
-            "account_id": suspicious_account,
-            "risk_score": risk_score,
-            "eligible_for_freeze": risk_score >= 70,
-            "status": account_status,
-        },
-    }
-
-
-@app.get("/ops/metrics")
-def ops_metrics():
-    return {
-        "total_frozen_accounts": repo.frozen_accounts_count(),
-        "total_blocked_transactions": repo.blocked_transactions_count(),
-    }
+    return {"message": "Borrower alert stream test", "count": len(events), "events": events}
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
-
     try:
         await websocket.send_json(
             {
                 "type": "connection",
-                "message": "Connected to CyberFin Fusion",
-                "stats": {
-                    "events": len(cyber_df),
-                    "transactions": len(txn_df),
-                    "rings": len(detector.detect_mule_rings()),
-                },
+                "message": "Connected to SatarkSetu borrower health backend",
+                "stats": detector.portfolio_summary(),
             }
         )
-
-        while True:
-            data = await websocket.receive_text()
-            await websocket.send_json(
-                {
-                    "type": "update",
-                    "received": data,
-                    "timestamp": datetime.now().isoformat(),
-                    "graph_nodes": G.number_of_nodes(),
-                    "graph_edges": G.number_of_edges(),
-                }
-            )
-
+        for item in detector.get_flagged_borrowers(threshold=60)[:25]:
+            await websocket.send_json({"type": "borrower_alert", **item})
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
-        print("Client disconnected")
-
-
-@app.get("/stream/test")
-def stream_test():
-    events = []
-    count = 0
-
-    for _, row in cyber_df.head(100).iterrows():
-        events.append(
-            {
-                "type": "cyber_event",
-                "account_id": row["account_id"],
-                "event_type": row["event_type"],
-                "timestamp": row["timestamp"].isoformat(),
-            }
-        )
-        count += 1
-
-    return {"message": "Test stream", "count": count, "events": events}
+        pass
+    finally:
+        if websocket in active_connections:
+            active_connections.remove(websocket)
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    print("🚀 Starting CyberFin Fusion Streaming Backend...")
-    print("📊 Endpoints:")
-    print("   • Main: http://localhost:8000")
-    print("   • Stream: http://localhost:8000/stream")
-    print("   • Stats: http://localhost:8000/stats")
-    print("   • WebSocket: ws://localhost:8000/ws")
-    print("   • Docs: http://localhost:8000/docs")
+    print("🚀 Starting SatarkSetu Borrower Health Backend...")
     uvicorn.run(app, host="0.0.0.0", port=8000)

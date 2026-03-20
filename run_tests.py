@@ -1,5 +1,5 @@
 """
-Test runner for CyberFin Fusion
+Test runner for SatarkSetu
 Runs all pytest tests and generates report
 """
 import subprocess
@@ -20,7 +20,7 @@ def run_tests(args=None):
             '--color=yes'
         ])
     
-    print("🧪 Running CyberFin Fusion Test Suite\n")
+    print("🧪 Running SatarkSetu Test Suite\n")
     print(f"Command: {' '.join(cmd)}\n")
     print("=" * 60)
     

@@ -1,1448 +1,1760 @@
-import streamlit as st
+from __future__ import annotations
+
+import calendar
+import subprocess
+from html import escape
+from pathlib import Path
+from textwrap import dedent
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import networkx as nx
-import math
-import html
-import base64
-import io
-from datetime import datetime, timedelta
-import random
-import os
-import httpx
+import streamlit as st
 
-# Securely load environment variables
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
-try:
-    import google.generativeai as genai
-except ImportError:
-    pass
-
-from detection_engine_neo4j import CyberFinDetectorNeo4j
+from detection_engine import SatarkSetuDetector
+from repositories import BorrowerRepository
 from gemini_explainer import GeminiExplainer
-from repositories import AccountRepository
 
-try:
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfgen import canvas
-    REPORTLAB_AVAILABLE = True
-except Exception:
-    REPORTLAB_AVAILABLE = False
 
-# ==========================================
-# PAGE CONFIGURATION
-# ==========================================
-st.set_page_config(page_title="CyberFin Fusion", layout="wide", page_icon="🛡️")
+DATA_FILES = ["borrowers.csv", "loan_transactions.csv", "regional_context.csv"]
+ADMIN_CREDENTIALS = {
+    "ujjwal": "ujjwal",
+    "sumedha": "sumedha",
+    "jyoti": "jyoti",
+}
+BORROWER_PASSWORD = "borrower123"
 
-# ==========================================
-# REFERENCE-STYLE LIGHT DASHBOARD CSS
-# ==========================================
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    :root {
-        --bg: #F5F7FB;
-        --card: #FFFFFF;
-        --primary: #5B6CFF;
-        --primary-dark: #3F4BD9;
-        --text: #0F172A;
-        --text-secondary: #64748B;
-        --text-muted: #94A3B8;
-        --border: #E6EAF2;
-        --shadow: 0 10px 30px rgba(15,23,42,0.08);
-    }
-    .stApp {
-        background: var(--bg);
-        color: var(--text);
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-    ::selection {
-        background: #cfe1ff;
-        color: #0F172A;
-    }
-    ::-moz-selection {
-        background: #cfe1ff;
-        color: #0F172A;
-    }
-    header[data-testid="stHeader"] {
-        background: transparent;
-        height: 0;
-    }
-    #MainMenu, footer { visibility: hidden; }
-    .main .block-container {
-        max-width: 1300px;
-        padding-top: 24px;
-        padding-bottom: 24px;
-    }
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f9fbff 0%, #f2f5fb 100%);
-        border-right: 1px solid var(--border);
-    }
-    [data-testid="stSidebar"] * { color: var(--text) !important; }
-    [data-testid="stMetric"] {
-        background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
-        border: 1px solid var(--border);
-        padding: 18px;
-        border-radius: 16px;
-        box-shadow: var(--shadow);
-    }
-    [data-testid="stMetricLabel"] {
-        color: var(--text-secondary) !important;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-    }
-    [data-testid="stMetricValue"] { color: var(--text) !important; font-weight: 700; }
-    h1, h2, h3, h4 { color: var(--text) !important; font-weight: 600 !important; letter-spacing: -0.02em; }
-    .stButton > button, .stDownloadButton > button {
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: #f7f9ff;
-        color: var(--text);
-        font-weight: 600;
-        padding: 8px 14px;
-    }
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%);
-        border: none;
-        color: #ffffff;
-    }
-    .stButton > button:disabled,
-    .stDownloadButton > button:disabled {
-        background: #EEF2F7 !important;
-        border: 1px solid #D5DCE8 !important;
-        color: #64748B !important;
-        -webkit-text-fill-color: #64748B !important;
-        opacity: 1 !important;
-        cursor: not-allowed !important;
-    }
-    .stButton > button:disabled *,
-    .stDownloadButton > button:disabled * {
-        color: #64748B !important;
-        -webkit-text-fill-color: #64748B !important;
-        opacity: 1 !important;
-    }
-    [data-testid="stSidebar"] .stButton > button {
-        background: #1F2937 !important;
-        border: 1px solid #374151 !important;
-        color: #ffffff !important;
-    }
-    [data-testid="stSidebar"] .stButton > button * {
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-    }
-    [data-testid="stSidebar"] .stButton > button:hover {
-        background: #111827 !important;
-        border-color: #4B5563 !important;
-        color: #ffffff !important;
-    }
-    [data-testid="stSidebar"] .stButton > button:hover * {
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-    }
-    [data-baseweb="input"] > div, [data-baseweb="select"] > div, .stTextInput > div > div {
-        border-radius: 12px !important;
-        border-color: var(--border) !important;
-        background: #ffffff !important;
-    }
-    [data-testid="stWidgetLabel"] p,
-    [data-testid="stWidgetLabel"] label {
-        color: #0F172A !important;
-        -webkit-text-fill-color: #0F172A !important;
-        font-weight: 600 !important;
-    }
-    [data-baseweb="select"] *,
-    [data-baseweb="select"] span,
-    [data-baseweb="select"] div {
-        color: #0F172A !important;
-        -webkit-text-fill-color: #0F172A !important;
-    }
-    [data-baseweb="input"] input,
-    .stTextInput input,
-    .stTextArea textarea,
-    [data-baseweb="select"] input {
-        color: #0F172A !important;
-        -webkit-text-fill-color: #0F172A !important;
-        caret-color: #0F172A !important;
-    }
-    [data-baseweb="input"] input::placeholder,
-    .stTextInput input::placeholder,
-    .stTextArea textarea::placeholder,
-    [data-baseweb="select"] input::placeholder {
-        color: #64748B !important;
-        -webkit-text-fill-color: #64748B !important;
-        opacity: 1 !important;
-    }
-    [data-testid="stDataFrame"] {
-        border: 1px solid var(--border);
-        border-radius: 16px;
-        overflow: hidden;
-        background: var(--card);
-        box-shadow: var(--shadow);
-    }
-    .js-plotly-plot .plotly .xtick text,
-    .js-plotly-plot .plotly .ytick text,
-    .js-plotly-plot .plotly .legend text,
-    .js-plotly-plot .plotly .gtitle,
-    .js-plotly-plot .plotly .infolayer text,
-    .js-plotly-plot .plotly .hovertext text {
-        fill: #0F172A !important;
-        color: #0F172A !important;
-    }
-    .js-plotly-plot .plotly .hovertext text {
-        fill: #FFFFFF !important;
-        color: #FFFFFF !important;
-    }
-    .st-key-landing_home,
-    .st-key-landing_contact,
-    .st-key-landing_help,
-    .st-key-landing_about {
-        position: fixed;
-        top: auto;
-        bottom: 26px;
-        z-index: 40;
-        pointer-events: auto;
-    }
-    .st-key-landing_home { left: calc(50% - 250px); width: 96px; }
-    .st-key-landing_contact { left: calc(50% - 140px); width: 108px; }
-    .st-key-landing_help { left: calc(50% - 18px); width: 74px; }
-    .st-key-landing_about { left: calc(50% + 68px); width: 102px; }
-    .st-key-landing_home button,
-    .st-key-landing_contact button,
-    .st-key-landing_help button,
-    .st-key-landing_about button {
-        border-radius: 999px !important;
-        border: 1px solid rgba(255,255,255,0.16) !important;
-        background: rgba(255,255,255,0.06) !important;
-        color: #ffffff !important;
-        font-size: 13px !important;
-        font-weight: 600 !important;
-        min-height: 34px !important;
-        padding: 6px 14px !important;
-        backdrop-filter: blur(6px);
-    }
-    .st-key-landing_home button[kind="primary"],
-    .st-key-landing_contact button[kind="primary"],
-    .st-key-landing_help button[kind="primary"],
-    .st-key-landing_about button[kind="primary"] {
-        background: rgba(255,255,255,0.18) !important;
-        border-color: rgba(255,255,255,0.35) !important;
-    }
-    .st-key-landing_get_started {
-        position: fixed;
-        top: auto;
-        bottom: 26px;
-        z-index: 40;
-        pointer-events: auto;
-    }
-    .st-key-landing_get_started { right: 136px; width: 112px; }
-    .st-key-landing_get_started button {
-        border-radius: 999px !important;
-        min-height: 36px !important;
-        padding: 8px 14px !important;
-        background: #7C3AED !important;
-        color: #ffffff !important;
-        border: none !important;
-        font-weight: 700 !important;
-    }
-    .landing-wrap {
-        min-height: 100vh;
-        width: 100vw;
-        background: radial-gradient(1200px 500px at 50% 20%, rgba(46,242,255,0.16), transparent 58%), linear-gradient(180deg, #05060A 0%, #0B0F17 55%, #0D121D 100%);
-        border: none;
-        border-radius: 0;
-        position: fixed;
-        inset: 0;
-        z-index: 10;
-        overflow: hidden;
-        padding: 24px 28px 90px 28px;
-        margin: 0;
-        pointer-events: none;
-    }
-    .landing-cutout {
-        position: absolute;
-        pointer-events: none;
-        z-index: 11;
-        opacity: 0.32;
-        mix-blend-mode: screen;
-        filter: saturate(1.12) contrast(1.04);
-        background-repeat: no-repeat;
-        background-position: center;
-        background-size: cover;
-    }
-    .landing-cutout.one {
-        left: -2vw;
-        top: 13vh;
-        width: 40vw;
-        height: 64vh;
-        mask-image: radial-gradient(circle at 62% 48%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.78) 42%, rgba(0,0,0,0.15) 72%, rgba(0,0,0,0) 100%);
-        -webkit-mask-image: radial-gradient(circle at 62% 48%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.78) 42%, rgba(0,0,0,0.15) 72%, rgba(0,0,0,0) 100%);
-    }
-    .landing-cutout.two {
-        right: -3vw;
-        bottom: 8vh;
-        width: 35vw;
-        height: 60vh;
-        opacity: 0.26;
-        mask-image: radial-gradient(circle at 38% 52%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 44%, rgba(0,0,0,0.18) 74%, rgba(0,0,0,0) 100%);
-        -webkit-mask-image: radial-gradient(circle at 38% 52%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.8) 44%, rgba(0,0,0,0.18) 74%, rgba(0,0,0,0) 100%);
-    }
-    .landing-nav-anchor { height: 62px; }
-    .landing-panel {
-        position: absolute;
-        left: 50%;
-        top: 68%;
-        transform: translate(-50%, -50%);
-        width: min(760px, 88vw);
-        z-index: 24;
-        pointer-events: none;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.18);
-        background: rgba(11,15,23,0.52);
-        backdrop-filter: blur(6px);
-        padding: 18px 20px;
-        text-align: center;
-    }
-    .landing-panel h3 {
-        color: #ffffff !important;
-        margin: 0 0 8px 0;
-        font-size: 22px;
-        font-weight: 700 !important;
-    }
-    .landing-panel p {
-        color: #cbd5e1 !important;
-        margin: 0;
-        font-size: 14px;
-        line-height: 1.5;
-    }
-    .landing-card {
-        width: 360px;
-        height: 210px;
-        margin: 36px auto 24px auto;
-        background: radial-gradient(circle at 20% 0%, rgba(34,211,238,0.22), transparent 55%), #0E111A;
-        border: 1px solid #1F2433;
-        border-radius: 18px;
-        box-shadow: 0 26px 60px rgba(10,15,30,0.7), 0 0 24px rgba(46,242,255,0.2);
-        transform: perspective(820px) rotateX(18deg) rotateY(-20deg) rotateZ(-6deg);
-        position: relative;
-        animation: floatCard 4s ease-in-out infinite;
-        overflow: hidden;
-    }
-    .landing-card::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background-image: radial-gradient(rgba(255,255,255,0.08) 0.9px, transparent 0.9px);
-        background-size: 6px 6px;
-        opacity: 0.5;
-    }
-    .landing-card .row {
-        position: relative;
-        z-index: 2;
-        color: #FFF;
-        font-size: 36px;
-        font-weight: 700;
-        padding: 24px 26px 0 26px;
-        line-height: 1.2;
-    }
-    .landing-card .row.small {
-        font-size: 42px;
-        padding-top: 14px;
-    }
-    .landing-headline {
-        text-align: center;
-        color: #FFFFFF;
-        font-size: 68px;
-        line-height: 1.05;
-        letter-spacing: -0.02em;
-        font-weight: 700;
-        margin-top: 18px;
-    }
-    .landing-grad {
-        background: linear-gradient(90deg, #22D3EE 0%, #60A5FA 45%, #8B5CF6 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-    }
-    .landing-sub {
-        text-align: center;
-        color: #9CA3AF;
-        font-size: 17px;
-        max-width: 760px;
-        margin: 12px auto 0 auto;
-        font-weight: 600;
-    }
-    .landing-desc {
-        text-align: center;
-        color: #cbd5e1;
-        font-size: 15px;
-        max-width: 860px;
-        margin: 10px auto 0 auto;
-        line-height: 1.45;
-    }
-    .landing-features {
-        text-align: center;
-        color: #b8c5da;
-        font-size: 14px;
-        margin-top: 12px;
-        letter-spacing: 0.01em;
-    }
-    .landing-note {
-        text-align: center;
-        color: #cbd5e1;
-        margin-top: 14px;
-        font-size: 15px;
-        letter-spacing: 0.01em;
-    }
-    @keyframes floatCard {
-        0%, 100% { transform: perspective(820px) rotateX(18deg) rotateY(-20deg) rotateZ(-6deg) translateY(0px); }
-        50% { transform: perspective(820px) rotateX(18deg) rotateY(-20deg) rotateZ(-6deg) translateY(-12px); }
-    }
-    .victim-popup {
-        background-color: #fff8dc;
-        border-left: 5px solid #f59e0b;
-        padding: 15px;
-        margin: 10px 0;
-        border-radius: 12px;
-        color: #7c5a12 !important;
-        border: 1px solid #f9ddb1;
-    }
-    .victim-popup h4, .victim-popup p, .victim-popup ul, .victim-popup li, .victim-popup strong {
-        color: #7c5a12 !important; 
-    }
-    .alert-critical {
-        background-color: #fee2e2;
-        border-left: 5px solid #ef4444;
-        padding: 15px;
-        margin: 10px 0;
-        border-radius: 12px;
-        color: #991b1b;
-        font-weight: bold;
-        border: 1px solid #fecaca;
-    }
-    blockquote {
-        background-color: #eef2ff;
-        border-left: 4px solid #5B6CFF;
-        padding: 15px;
-        border-radius: 8px;
-        color: #1e3a8a;
-        font-size: 0.95rem;
-    }
-    [data-testid="stAlert"] {
-        color: #111827 !important;
-    }
-    [data-testid="stAlert"] * {
-        color: #111827 !important;
-        -webkit-text-fill-color: #111827 !important;
-    }
-    .status-badge {
-        display: inline-block;
-        padding: 6px 12px;
-        border-radius: 999px;
-        font-weight: 700;
-        font-size: 12px;
-        letter-spacing: 0.01em;
-        margin-left: 8px;
-    }
-    .status-active {
-        background: #DCFCE7;
-        color: #166534;
-        border: 1px solid #86EFAC;
-    }
-    .status-frozen {
-        background: #FEE2E2;
-        color: #991B1B;
-        border: 1px solid #FCA5A5;
-    }
-    .status-review {
-        background: #FFEDD5;
-        color: #9A3412;
-        border: 1px solid #FDBA74;
-    }
-</style>
-""", unsafe_allow_html=True)
 
-# ==========================================
-# SESSION STATE INITIALIZATION
-# ==========================================
-if "ai_outputs" not in st.session_state:
-    st.session_state.ai_outputs = {}
+def ensure_demo_data() -> None:
+    if all(Path(file_name).exists() for file_name in DATA_FILES):
+        return
+    subprocess.run(["python3", "data_generator.py"], check=True)
 
-if "current_viewed_account" not in st.session_state:
-    st.session_state.current_viewed_account = None
 
-if "last_tx_receipt" not in st.session_state:
-    st.session_state.last_tx_receipt = None
-
-# ==========================================
-# DATA LOADING
-# ==========================================
 @st.cache_data
 def load_data():
-    cyber = pd.read_csv('cyber_events.csv')
-    txns = pd.read_csv('transactions.csv')
-    cyber['timestamp'] = pd.to_datetime(cyber['timestamp'])
-    txns['timestamp'] = pd.to_datetime(txns['timestamp'])
-    return cyber, txns
+    ensure_demo_data()
+    borrowers = pd.read_csv("borrowers.csv")
+    transactions = pd.read_csv("loan_transactions.csv", parse_dates=["timestamp"])
+    regional = pd.read_csv("regional_context.csv")
+    return borrowers, transactions, regional
+
 
 @st.cache_resource
-def initialize_detector(cyber, txns):
-    # Keep dashboard startup fast and avoid clearing/rebuilding persistent Neo4j data.
-    # Backend is the single writer/source-of-truth for the transaction graph.
-    detector = CyberFinDetectorNeo4j(cyber, txns, use_neo4j=False)
-    stats = detector.build_graph()
-    detector.db_stats = stats
+def initialize_detector(borrowers: pd.DataFrame, transactions: pd.DataFrame, regional: pd.DataFrame):
+    detector = SatarkSetuDetector(borrowers, transactions, regional)
+    detector.build_graph()
     return detector
 
-@st.cache_resource
-def initialize_explainer():
-    # Pass the API key to environment so GeminiExplainer can pick it up natively
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        try:
-            genai.configure(api_key=api_key)
-        except NameError:
-            pass
-    explainer = GeminiExplainer()
-    return explainer
 
-@st.cache_resource
-def initialize_repo():
-    return AccountRepository()
+st.set_page_config(page_title="SatarkSetu", layout="wide", page_icon="🏦")
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
-FAKE_JOB_ADS = [
-    "💰 Earn ₹15,000/week from home! No experience needed. Just receive & transfer payments.",
-    "🏠 Work From Home - Payment Processing Agent. ₹20k/month guaranteed. Easy work, flexible hours!",
-    "💼 Urgent Hiring: Financial Assistant. Handle transactions from home. ₹18k/week + bonus!",
-    "📱 Instagram Opportunity: Be a payment coordinator. ₹25k/month. DM for details!",
-    "🎯 Student-Friendly Job: Process payments part-time. ₹12k/week. No investment required!"
-]
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"], [class*="st-"] {
+        font-family: 'Inter', sans-serif !important;
+    }
+    .stApp {
+        background: 
+            radial-gradient(circle at top left, rgba(255,255,255,0.8), transparent 40%),
+            linear-gradient(135deg, #fadce4 0%, #f3d1df 50%, #ebd4de 100%);
+        color: #1c1c1e;
+    }
+    .main h1, .main h2, .main h3, .main h4, .main p, .main label, .main span, .main div {
+        color: #1c1c1e;
+    }
+    .hero {
+        background: rgba(255, 255, 255, 0.45);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        color: #1c1c1e;
+        border-radius: 32px;
+        padding: 32px 36px;
+        margin-bottom: 24px;
+        box-shadow: 0 24px 48px rgba(180, 140, 150, 0.15);
+    }
+    .hero h1 {
+        color: #1c1c1e !important;
+        font-weight: 700 !important;
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.5px;
+    }
+    .hero p {
+        margin: 0;
+        color: #3a3a3c;
+        font-weight: 500;
+        font-size: 1.05rem;
+    }
+    .focus-card {
+        background: rgba(255, 255, 255, 0.5);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 24px;
+        padding: 24px 28px;
+        margin: 12px 0 28px 0;
+        box-shadow: 0 16px 32px rgba(180, 140, 150, 0.12);
+    }
+    .focus-card h4, .focus-card p {
+        color: #1c1c1e !important;
+        margin: 0;
+    }
+    .focus-card p {
+        margin-top: 8px;
+        color: #48484a !important;
+        line-height: 1.5;
+    }
+    [data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.55);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 24px;
+        padding: 18px 22px;
+        box-shadow: 0 12px 28px rgba(180, 140, 150, 0.1);
+    }
+    [data-testid="stMetricLabel"] {
+        color: #636366 !important;
+        font-weight: 500 !important;
+        font-size: 0.95rem !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #1c1c1e !important;
+        font-weight: 700 !important;
+        font-size: 2rem !important;
+    }
+    .flag-pill {
+        background: rgba(255, 255, 255, 0.55);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 20px;
+        padding: 12px 18px;
+        margin-bottom: 12px;
+        box-shadow: 0 8px 24px rgba(180, 140, 150, 0.1);
+        color: #1c1c1e;
+        font-weight: 600;
+        font-size: 1rem;
+        display: block;
+    }
+    [data-baseweb="tab-list"] {
+        gap: 12px;
+        padding: 4px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+    button[role="tab"] {
+        color: #3a3a3c !important;
+        background: transparent !important;
+        border-radius: 999px !important;
+        border: none !important;
+        padding: 12px 20px !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+    }
+    button[role="tab"][aria-selected="true"] {
+        color: #ffffff !important;
+        background: #1c1c1e !important;
+        box-shadow: 0 4px 12px rgba(28, 28, 30, 0.3);
+    }
+    .stButton button {
+        border-radius: 999px !important;
+        border: 1px solid rgba(255, 255, 255, 0.8) !important;
+        background: rgba(255, 255, 255, 0.6) !important;
+        backdrop-filter: blur(10px);
+        color: #1c1c1e !important;
+        font-weight: 600 !important;
+        min-height: 48px !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 12px rgba(180, 140, 150, 0.1);
+    }
+    .stForm [data-testid="stFormSubmitButton"] button,
+    button[kind="primary"] {
+        background: linear-gradient(90deg, #ff5f2e 0%, #e0287d 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 999px !important;
+        box-shadow: 0 8px 16px rgba(224, 40, 125, 0.25) !important;
+    }
+    .stForm [data-testid="stFormSubmitButton"] button p,
+    .stForm [data-testid="stFormSubmitButton"] button span,
+    button[kind="primary"] p,
+    button[kind="primary"] span {
+        color: #ffffff !important;
+    }
+    .stButton button:hover {
+        background: rgba(255, 255, 255, 0.8) !important;
+        transform: translateY(-1px);
+    }
+    .stForm [data-testid="stFormSubmitButton"] button:hover,
+    button[kind="primary"]:hover {
+        filter: brightness(1.1);
+        color: #ffffff !important;
+        transform: translateY(-1px);
+    }
+    /* SideBar */
+    [data-testid="stSidebar"] {
+        background: rgba(255, 255, 255, 0.35) !important;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-right: 1px solid rgba(255, 255, 255, 0.5);
+    }
+    [data-testid="stSidebar"] * {
+        color: #1c1c1e !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] > div,
+    [data-testid="stSidebar"] [data-baseweb="input"] > div {
+        background: rgba(255, 255, 255, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.9) !important;
+        border-radius: 12px !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] *,
+    [data-testid="stSidebar"] [data-baseweb="input"] *,
+    [data-testid="stSidebar"] .stSlider * {
+        color: #1c1c1e !important;
+    }
+    /* Section Cards */
+    .section-card {
+        background: rgba(255, 255, 255, 0.5);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 28px;
+        padding: 24px;
+        box-shadow: 0 16px 36px rgba(180, 140, 150, 0.1);
+    }
+    /* Headers Fix */
+    div[data-testid="stMarkdownContainer"] > h1, 
+    div[data-testid="stMarkdownContainer"] > h2, 
+    div[data-testid="stMarkdownContainer"] > h3 {
+        color: #1c1c1e !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.5px;
+    }
+    .glass-table-shell {
+        background: rgba(255, 255, 255, 0.26);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border: 1px solid rgba(255, 255, 255, 0.75);
+        border-radius: 22px;
+        box-shadow: 0 16px 32px rgba(180, 140, 150, 0.1);
+        overflow: hidden;
+    }
+    .glass-table-wrap {
+        overflow-x: auto;
+    }
+    .glass-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        color: #1c1c1e;
+        font-size: 0.98rem;
+        background: transparent;
+    }
+    .glass-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(255, 255, 255, 0.46);
+        color: #2c2c2e;
+        text-align: left;
+        padding: 14px 16px;
+        font-weight: 700;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.78);
+    }
+    .glass-table tbody td {
+        padding: 13px 16px;
+        background: rgba(255, 255, 255, 0.12);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.34);
+        color: #1c1c1e;
+    }
+    .glass-table tbody tr:nth-child(even) td {
+        background: rgba(255, 255, 255, 0.18);
+    }
+    .glass-table tbody tr:hover td {
+        background: rgba(255, 255, 255, 0.28);
+    }
+    .status-pill {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-align: center;
+    }
+    .status-success {
+        background: rgba(34, 197, 94, 0.15);
+        color: #15803d;
+        border: 1px solid rgba(34, 197, 94, 0.4);
+    }
+    .status-error {
+        background: rgba(239, 68, 68, 0.15);
+        color: #b91c1c;
+        border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+    .status-warning {
+        background: rgba(234, 179, 8, 0.15);
+        color: #a16207;
+        border: 1px solid rgba(234, 179, 8, 0.4);
+    }
+    /* Turfingo Blueprint */
+    .landing-hero {
+        padding: 4vh 2vw 2vh 2vw;
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.05fr);
+        gap: 32px;
+        align-items: center;
+        min-height: 75vh;
+        position: relative;
+        overflow: hidden;
+    }
+    .landing-copy {
+        position: relative;
+        z-index: 2;
+    }
+    .landing-logo-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 88px;
+        height: 88px;
+        margin-bottom: 20px;
+        border-radius: 24px;
+        background: rgba(255,255,255,0.38);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255,255,255,0.75);
+        box-shadow: 0 18px 32px rgba(120, 60, 80, 0.12);
+    }
+    .landing-logo-chip img {
+        width: 62px;
+        height: 62px;
+        object-fit: contain;
+    }
+    .landing-hero h1 {
+        font-size: 7.5rem;
+        font-weight: 800;
+        font-style: italic;
+        line-height: 1;
+        letter-spacing: -3px;
+        color: #174229;
+        margin: 0 0 24px 0;
+        text-transform: uppercase;
+    }
+    .landing-hero p.subtext {
+        font-size: 1.35rem;
+        color: #3a3a3c;
+        max-width: 580px;
+        line-height: 1.6;
+        font-weight: 500;
+        margin-bottom: 48px;
+        border-left: 4px solid #174229;
+        padding-left: 24px;
+    }
+    .landing-metrics {
+        display: flex;
+        gap: 80px;
+        border-top: 1px solid rgba(23,66,41,0.15);
+        padding-top: 32px;
+        margin-top: 60px;
+    }
+    .metric-box h3 {
+        font-size: 2.8rem;
+        font-weight: 800;
+        margin: 0 0 4px 0;
+        color: #174229;
+    }
+    .metric-box p {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #636366;
+        margin: 0;
+        font-weight: 700;
+    }
+    .landing-art {
+        position: relative;
+        min-height: 620px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
 
-def show_victim_popup(account_id):
-    fake_ad = random.choice(FAKE_JOB_ADS)
-    st.markdown(f"""
-    <div class="victim-popup">
-        <h4>🎭 Likely Recruitment Scenario</h4>
-        <p><strong>Account:</strong> {account_id}</p>
-        <p><strong>Victim probably saw this ad:</strong></p>
-        <p style="font-style: italic; padding: 10px; background: rgba(255,255,255,0.5); border-radius: 5px; border: 1px solid #d39e00;">
-            "{fake_ad}"
-        </p>
-        <p><strong>What happened next:</strong></p>
-        <ul>
-            <li>Victim responded thinking it's a legitimate job</li>
-            <li>Scammer asked for bank details "for salary deposit"</li>
-            <li>Account used to receive & transfer stolen money</li>
-            <li>Victim unaware they're committing money laundering</li>
-        </ul>
-        <p style="color: #dc3545 !important;"><strong>⚠️ 71% of Gen Z unaware this leads to criminal record</strong></p>
-    </div>
-    """, unsafe_allow_html=True)
+    .hero-cutout {
+        position: absolute;
+        overflow: hidden;
+        border-radius: 34px;
+        background: rgba(255,255,255,0.14);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.55);
+        box-shadow: 0 26px 44px rgba(120, 60, 80, 0.14);
+    }
+    .hero-cutout img {
+        position: absolute;
+        max-width: none;
+        filter: drop-shadow(0 18px 26px rgba(15, 60, 34, 0.14));
+    }
+    .hero-cutout.main {
+        width: 56%;
+        height: 78%;
+        right: 6%;
+        top: 10%;
+        transform: rotate(7deg);
+    }
+    .hero-cutout.main img {
+        width: 132%;
+        left: -18%;
+        top: -8%;
+        transform: rotate(-5deg);
+    }
+    .hero-cutout.hand {
+        width: 30%;
+        height: 34%;
+        left: 8%;
+        top: 18%;
+        transform: rotate(-10deg);
+    }
+    .hero-cutout.hand img {
+        width: 188%;
+        left: -96%;
+        top: 2%;
+    }
+    .hero-cutout.bag {
+        width: 28%;
+        height: 32%;
+        left: 24%;
+        bottom: 14%;
+        transform: rotate(9deg);
+    }
+    .hero-cutout.bag img {
+        width: 186%;
+        left: -18%;
+        top: -54%;
+    }
+    .hero-cutout.arrow {
+        width: 24%;
+        height: 22%;
+        right: 18%;
+        bottom: 8%;
+        transform: rotate(-8deg);
+    }
+    .hero-cutout.arrow img {
+        width: 165%;
+        left: -66%;
+        top: -16%;
+    }
+    .hero-echo {
+        position: absolute;
+        width: 78%;
+        max-width: none;
+        opacity: 0.08;
+        right: 2%;
+        top: 9%;
+        transform: rotate(8deg);
+    }
+    @media (max-width: 1100px) {
+        .landing-hero {
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        .landing-art {
+            min-height: 440px;
+        }
+        .landing-hero h1 {
+            font-size: 5.4rem;
+        }
+    }
+    
+    .mission-row {
+        padding: 10vh 2vw;
+        border-top: 1px solid rgba(23,66,41,0.15);
+        background: transparent;
+    }
+    .mission-card {
+        padding: 20px 40px;
+        height: 100%;
+        background: transparent;
+        border-right: 1px solid rgba(23,66,41,0.15);
+    }
+    .mission-card:last-child {
+        border-right: none;
+    }
+    .mission-number {
+        font-size: 3.5rem;
+        font-weight: 300;
+        font-style: italic;
+        color: rgba(23,66,41,0.2);
+        margin-bottom: 24px;
+        line-height: 1;
+    }
+    .mission-card h3 {
+        font-size: 2.2rem;
+        font-weight: 800;
+        font-style: italic;
+        margin-bottom: 16px;
+        color: #1c1c1e;
+    }
+    .mission-card p {
+        font-size: 1.1rem;
+        color: #48484a;
+        line-height: 1.6;
+    }
 
-def export_sar_report(flagged_accounts, rings):
-    report_data = []
-    for acc in flagged_accounts[:50]: 
-        report_data.append({
-            'Report_Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'Account_ID': acc['account_id'],
-            'Risk_Score': acc['risk_score'],
-            'Status': 'CRITICAL' if acc['risk_score'] >= 70 else 'HIGH',
-            'Cyber_Flags': ', '.join(acc['cyber_flags']) if acc['cyber_flags'] else 'None',
-            'Financial_Flags': ', '.join(acc['financial_flags']) if acc['financial_flags'] else 'None',
-            'Recommended_Action': 'FREEZE_IMMEDIATELY' if acc['risk_score'] >= 80 else 'MANUAL_REVIEW',
-            'Ring_Membership': 'Under Investigation'
-        })
-    return pd.DataFrame(report_data)
+    .about-section {
+        padding: 10vh 2vw;
+        border-top: 1px solid rgba(23,66,41,0.15);
+    }
+    .about-mini-title {
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-weight: 700;
+        color: #174229;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .about-mini-title::before {
+        content: "";
+        display: inline-block;
+        width: 32px;
+        height: 2px;
+        background: #174229;
+    }
+    .about-header {
+        font-size: 5rem;
+        font-weight: 800;
+        font-style: italic;
+        text-transform: uppercase;
+        color: #174229;
+        line-height: 1.1;
+        margin-bottom: 32px;
+        letter-spacing: -2px;
+    }
+    .about-text {
+        font-size: 1.3rem;
+        color: #3a3a3c;
+        max-width: 500px;
+        line-height: 1.6;
+        font-weight: 500;
+    }
+    .staggered-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-top: 40px;
+    }
+    .staggered-item {
+        background: rgba(255,255,255,0.4);
+        border: 1px solid rgba(255,255,255,0.6);
+        border-radius: 20px;
+        height: 280px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 16px 40px rgba(0,0,0,0.06);
+        font-weight: 700;
+        font-size: 1.2rem;
+        color: #174229;
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+    .staggered-item:nth-child(2n) {
+        transform: translateY(60px);
+    }
+    .contact-card {
+        background: rgba(255,255,255,0.7);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 16px;
+        border: 1px solid rgba(255,255,255,0.9);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.03);
+    }
+    .contact-card p.small {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #636366;
+        margin: 0 0 8px 0;
+        font-weight: 700;
+    }
+    .contact-card h4 {
+        margin: 0;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #1c1c1e;
+    }
+    .signin-hero-title,
+    .signin-hero-tagline {
+        color: #ffd84d !important;
+        text-shadow: 0 4px 14px rgba(50, 35, 0, 0.2);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-def load_contact_us_content():
-    try:
-        with open("contact_us.md", "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return "Contact info file not found."
-
-def load_about_us_content():
-    try:
-        with open("about_us.md", "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return "About us file not found."
-
-def load_help_content():
-    try:
-        with open("help.md", "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return "Help file not found."
-
-def image_to_data_uri(file_path):
-    try:
-        ext = os.path.splitext(file_path)[1].lower()
-        mime = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/webp" if ext == ".webp" else "application/octet-stream"
-        with open(file_path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("ascii")
-        return f"data:{mime};base64,{encoded}"
-    except Exception:
-        return ""
-
-def status_badge(status):
-    if status == "FROZEN":
-        return '<span class="status-badge status-frozen">FROZEN</span>'
-    if status == "UNDER_REVIEW":
-        return '<span class="status-badge status-review">UNDER REVIEW</span>'
-    return '<span class="status-badge status-active">ACTIVE</span>'
-
-def safe_post_json(url, payload=None, timeout=4.0):
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            res = client.post(url, json=payload or {})
-        return res
-    except Exception:
-        return None
-
-def safe_get_json(url, timeout=4.0):
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            res = client.get(url)
-        return res
-    except Exception:
-        return None
+borrowers_df, transactions_df, regional_df = load_data()
+detector = initialize_detector(borrowers_df, transactions_df, regional_df)
+repo = BorrowerRepository()
+explainer = GeminiExplainer()
 
 
-def fetch_backend_graph():
-    response = safe_get_json(f"{backend_base_url}/graph")
-    if response is None:
-        return None, "Backend unreachable. Start FastAPI backend."
-    if response.status_code >= 300:
-        try:
-            detail = response.json().get("detail", response.text)
-        except Exception:
-            detail = response.text
-        return None, f"Graph unavailable: {detail}"
-    return response.json(), None
+def style_figure(fig: go.Figure) -> go.Figure:
+    fig.update_layout(
+        template=None,
+        paper_bgcolor="rgba(255,255,255,0.18)",
+        plot_bgcolor="rgba(255,255,255,0.10)",
+        font=dict(color="#1c1c1e"),
+        title_font=dict(color="#1c1c1e", size=22),
+        legend=dict(
+            bgcolor="rgba(255,255,255,0.16)",
+            bordercolor="rgba(255,255,255,0.35)",
+            borderwidth=1,
+            font=dict(color="#1c1c1e"),
+        ),
+        margin=dict(l=16, r=16, t=56, b=56),
+    )
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor="rgba(120, 120, 135, 0.16)",
+        zeroline=False,
+        linecolor="rgba(120, 120, 135, 0.24)",
+        tickfont=dict(color="#3a3a3c"),
+        title_font=dict(color="#1c1c1e"),
+        title_standoff=16,
+        automargin=True,
+    )
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(120, 120, 135, 0.16)",
+        zeroline=False,
+        linecolor="rgba(120, 120, 135, 0.24)",
+        tickfont=dict(color="#3a3a3c"),
+        title_font=dict(color="#1c1c1e"),
+        title_standoff=12,
+        automargin=True,
+    )
+    return fig
 
 
-def render_transaction_graph(graph_payload, plot_key):
-    nodes = graph_payload.get("nodes", [])
-    edges = graph_payload.get("edges", [])
-
-    if not nodes:
-        st.info("No accounts in Neo4j yet. Create a transaction to seed the graph.")
+def render_glass_table(df: pd.DataFrame, *, max_height: int | None = None) -> None:
+    if df.empty:
+        st.info("No records available.")
         return
 
-    graph = nx.DiGraph()
-    for node in nodes:
-        node_id = str(node.get("id"))
-        graph.add_node(
-            node_id,
-            status=(node.get("status") or "ACTIVE"),
-            risk_score=int(node.get("risk_score") or 0),
+    display_df = df.fillna("")
+    cols = display_df.columns.tolist()
+    head_html = "".join(f"<th>{escape(str(column))}</th>" for column in cols)
+    body_rows = []
+    for row in display_df.itertuples(index=False):
+        cells = []
+        for i, col in enumerate(cols):
+            val = str(row[i])
+            if col.lower() == "status":
+                status_lower = val.lower()
+                if status_lower in ["paid", "completed", "success", "posted", "active"]:
+                    color_class = "status-success"
+                elif status_lower in ["delayed", "failed", "overdue", "support required", "support_required"]:
+                    color_class = "status-error"
+                else:
+                    color_class = "status-warning"
+                cells.append(f'<td><span class="status-pill {color_class}">{escape(val)}</span></td>')
+            else:
+                cells.append(f"<td>{escape(val)}</td>")
+        body_rows.append(f"<tr>{''.join(cells)}</tr>")
+    height_style = f"max-height:{max_height}px;" if max_height else ""
+    st.markdown(
+        f"""
+        <div class="glass-table-shell">
+            <div class="glass-table-wrap" style="{height_style}">
+                <table class="glass-table">
+                    <thead><tr>{head_html}</tr></thead>
+                    <tbody>{''.join(body_rows)}</tbody>
+                </table>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def build_portfolio_df() -> pd.DataFrame:
+    all_borrowers = []
+    for borrower_id in borrowers_df["borrower_id"]:
+        analysis = detector.analyze_borrower(borrower_id).as_dict()
+        repo.upsert_borrower_risk(
+            borrower_id,
+            risk_score=analysis["risk_score"],
+            health_score=analysis["health_score"],
+            name=analysis["name"],
         )
-    for edge in edges:
-        source = str(edge.get("source"))
-        target = str(edge.get("target"))
-        if source and target:
-            graph.add_edge(
-                source,
-                target,
-                status=(edge.get("status") or "APPROVED"),
-                amount=float(edge.get("amount") or 0.0),
-                txn_id=str(edge.get("txn_id") or ""),
-            )
+        repo_row = repo.get_borrower(borrower_id) or {}
+        all_borrowers.append({**analysis, "status": repo_row.get("status", "ACTIVE")})
+    return pd.DataFrame(all_borrowers)
 
-    if graph.number_of_nodes() == 1:
-        only_node = next(iter(graph.nodes()))
-        pos = {only_node: (0.0, 0.0)}
+
+def logout() -> None:
+    for key in ["view", "admin_authenticated", "borrower_authenticated", "borrower_id"]:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
+
+
+def render_app_hero() -> None:
+    img_html = ""
+    try:
+        import base64
+        with open("logo_transparent.png", "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        img_html = f'<img src="data:image/png;base64,{encoded_string}" style="height: 180px; border-radius: 40px; box-shadow: 0 20px 48px rgba(180, 140, 150, 0.15); margin-bottom: 32px;"/>'
+    except Exception:
+        pass
+
+    st.markdown(
+        f"""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 80px 40px 60px 40px;">
+            {img_html}
+            <h1 style="font-size: 6.5rem; line-height: 1.1; margin-bottom: 24px; background: linear-gradient(90deg, #FF9933 0%, #FFFFFF 50%, #138808 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0px 6px 12px rgba(0,0,0,0.12)); display: inline-block; font-weight: 800; letter-spacing: -3px;">SatarkSetu</h1>
+            <p style="font-size: 1.6rem; color: #2c2c2e; max-width: 800px; line-height: 1.5; font-weight: 500;">Borrower health and contextual recovery intelligence for MSME and government-scheme portfolios.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def render_segmented_health_bar(score: int, title: str = "Health score") -> str:
+    total_segments = 28
+    filled = max(0, min(total_segments, round((score / 100.0) * total_segments)))
+    segs = "".join(
+        [
+            f'<div style="width: 8px; height: 34px; background: {"linear-gradient(180deg, #76d596 0%, #47bf6a 100%)" if i < filled else "#eef1f7"}; border-radius: 999px;"></div>'
+            for i in range(total_segments)
+        ]
+    )
+
+    return dedent(
+        f"""
+        <div style="background: rgba(255,255,255,0.92); border-radius: 28px; padding: 26px 24px; border: 1px solid rgba(255,255,255,0.88); box-shadow: 0 18px 34px rgba(180,140,150,0.10); margin-top: 8px; margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <span style="font-size: 1.05rem; font-weight: 600; color: #1c1c1e;">{title}</span>
+                <div style="display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(28,28,30,0.08); border-radius: 999px; overflow: hidden;">
+                    <span style="padding: 8px 16px; font-size: 0.95rem; color: #1c1c1e;">Apply</span>
+                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; background: #f5f6fa; font-size: 1.8rem; color: #a1a7b3;">+</span>
+                </div>
+            </div>
+            <div style="border-top: 1px solid rgba(28,28,30,0.08); margin-bottom: 20px;"></div>
+            <h3 style="margin: 0 0 8px 0; font-size: 2.5rem; font-weight: 500; color: #1c1c1e; letter-spacing: -1px;">Your credit score is {score}</h3>
+            <p style="margin: 0 0 22px 0; color: #636366; font-size: 0.98rem;">Build a stronger repayment history to keep improving this score.</p>
+            <div style="display: flex; gap: 5px; margin-bottom: 24px; width: 100%; align-items: end;">{segs}</div>
+            <div style="border-top: 1px solid rgba(28,28,30,0.08); padding-top: 18px;">
+                <p style="margin: 0; color: #636366; font-size: 0.92rem; line-height: 1.55;">Your credit score reflects your payment reliability. A higher score supports smoother loan servicing and better repayment standing.</p>
+            </div>
+        </div>
+        """
+    ).strip()
+
+
+def render_transaction_days_card(txns: pd.DataFrame, selected_window_days: int | None = None) -> str:
+    if txns.empty:
+        return """
+        <div style="background: rgba(255,255,255,0.92); border-radius: 28px; padding: 26px 24px; border: 1px solid rgba(255,255,255,0.88); box-shadow: 0 18px 34px rgba(180,140,150,0.10); margin-bottom: 24px;">
+            <h3 style="margin: 0 0 10px 0; font-size: 1.9rem; font-weight: 500; color: #1c1c1e;">Transactions days</h3>
+            <p style="margin: 0; color: #636366;">No recent transactions available.</p>
+        </div>
+        """
+
+    recent = txns.copy().sort_values("timestamp")
+    recent["day"] = recent["timestamp"].dt.normalize()
+    end_day = recent["day"].max()
+    available_days = max(1, int((end_day - recent["day"].min()).days) + 1)
+    if selected_window_days is None:
+        window_days = min(62, max(21, available_days))
     else:
-        k = max(0.35, 1.0 / math.sqrt(max(graph.number_of_nodes(), 2)))
-        pos = nx.spring_layout(graph.to_undirected(), seed=42, k=k, iterations=60)
+        window_days = min(selected_window_days, available_days)
+    days = pd.date_range(end=end_day, periods=window_days, freq="D")
+    recent = recent[recent["day"].isin(days)]
 
-    approved_edge_trace = go.Scatter(
-        x=[],
-        y=[],
-        line=dict(width=1.4, color="#2563EB"),
-        hoverinfo="none",
-        mode="lines",
-        name="APPROVED",
-    )
-    blocked_edge_trace = go.Scatter(
-        x=[],
-        y=[],
-        line=dict(width=1.6, color="#6B7280"),
-        hoverinfo="none",
-        mode="lines",
-        name="BLOCKED",
-    )
+    per_day: dict[pd.Timestamp, list[dict]] = {}
+    for _, row in recent.iterrows():
+        per_day.setdefault(row["day"], []).append(row.to_dict())
 
-    for source, target, attrs in graph.edges(data=True):
-        x0, y0 = pos[source]
-        x1, y1 = pos[target]
-        target_trace = blocked_edge_trace if attrs.get("status") == "BLOCKED" else approved_edge_trace
-        target_trace["x"] += tuple([x0, x1, None])
-        target_trace["y"] += tuple([y0, y1, None])
+    def cell_style(entries: list[dict] | None) -> tuple[str, str]:
+        if not entries:
+            return ("background:#e9edf7;", "&nbsp;")
+        paid = sum(1 for item in entries if str(item["transaction_type"]).upper() == "EMI_PAYMENT" and str(item["status"]).upper() in {"ON_TIME", "COMPLETED", "SUCCESS", "PAID"})
+        missed = sum(1 for item in entries if str(item["transaction_type"]).upper() == "EMI_PAYMENT" and str(item["status"]).upper() in {"MISSED", "DELAYED", "FAILED", "OVERDUE"})
+        inflow = sum(1 for item in entries if str(item["transaction_type"]).upper() == "BUSINESS_INFLOW")
+        outflow = sum(1 for item in entries if str(item["transaction_type"]).upper() == "BUSINESS_OUTFLOW")
+        other = len(entries) - paid - missed
+        if missed:
+            return ("background:#ff8d61; color:white;", str(missed))
+        if paid:
+            return ("background:#64c983; color:white;", str(paid))
+        if inflow:
+            return ("background:#4d61e8; color:white;", str(other))
+        if outflow:
+            return ("background:#8a7cf4; color:white;", str(other))
+        return ("background:#e9edf7;", "&nbsp;")
+
+    week_labels = "".join(f"<div style='text-align:center; color:#5e6472; font-size:0.92rem;'>{day}</div>" for day in ["M", "T", "W", "T", "F", "S", "S"])
+
+    start_pad = days[0].weekday()
+    cells = ["<div></div>" for _ in range(start_pad)]
+    active_days = 0
+    paid_days = 0
+    missed_days = 0
+    inflow_days = 0
+    outflow_days = 0
+    paid_amount = 0.0
+    missed_amount = 0.0
+    inflow_amount = 0.0
+    outflow_amount = 0.0
+    for day in days:
+        entries = per_day.get(day.normalize())
+        if entries:
+            active_days += 1
+            paid_today = [item for item in entries if str(item["transaction_type"]).upper() == "EMI_PAYMENT" and str(item["status"]).upper() in {"ON_TIME", "COMPLETED", "SUCCESS", "PAID"}]
+            missed_today = [item for item in entries if str(item["transaction_type"]).upper() == "EMI_PAYMENT" and str(item["status"]).upper() in {"MISSED", "DELAYED", "FAILED", "OVERDUE"}]
+            inflow_today = [item for item in entries if str(item["transaction_type"]).upper() == "BUSINESS_INFLOW"]
+            outflow_today = [item for item in entries if str(item["transaction_type"]).upper() == "BUSINESS_OUTFLOW"]
+            paid_days += bool(paid_today)
+            missed_days += bool(missed_today)
+            inflow_days += bool(inflow_today)
+            outflow_days += bool(outflow_today)
+            paid_amount += sum(float(item.get("amount") or 0) for item in paid_today)
+            missed_amount += sum(float(item.get("amount") or 0) for item in missed_today)
+            inflow_amount += sum(float(item.get("amount") or 0) for item in inflow_today)
+            outflow_amount += sum(float(item.get("amount") or 0) for item in outflow_today)
+        style, value = cell_style(entries)
+        cells.append(
+            f"<div style='width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:1.45rem;font-weight:500;{style}'>{value}</div>"
+        )
+    cells_html = "".join(cells)
+    start_day = days.min()
+    if start_day.month == end_day.month:
+        month_label = f"{calendar.month_name[end_day.month]} {end_day.year}"
+    else:
+        month_label = f"{calendar.month_abbr[start_day.month]}-{calendar.month_abbr[end_day.month]} {end_day.year}"
+
+    return dedent(
+        f"""
+        <div style="background: rgba(255,255,255,0.92); border-radius: 28px; padding: 26px 24px; border: 1px solid rgba(255,255,255,0.88); box-shadow: 0 18px 34px rgba(180,140,150,0.10); margin-bottom: 24px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+                <h3 style="margin:0; font-size:1.9rem; font-weight:500; color:#1c1c1e;">Transactions days</h3>
+                <div style="width:48px;height:48px;border-radius:999px;border:1px solid rgba(28,28,30,0.08);display:flex;align-items:center;justify-content:center;color:#a1a7b3;font-size:1.7rem;">⋮</div>
+            </div>
+            <div style="border-top:1px solid rgba(28,28,30,0.08); margin-bottom:20px;"></div>
+            <div style="display:flex; align-items:center; gap:14px; margin-bottom:22px; flex-wrap:wrap;">
+                <div style="font-size:3rem; line-height:1; color:#1c1c1e;">{window_days}</div>
+                <div style="font-size:1.5rem; color:#5e6472;">Days</div>
+                <div style="margin-left:12px; width:54px;height:54px;border-radius:999px;border:1px solid rgba(28,28,30,0.08);display:flex;align-items:center;justify-content:center;font-size:2rem;color:#1c1c1e;">{active_days}</div>
+                <div style="width:44px;height:44px;border-radius:999px;border:1px solid rgba(28,28,30,0.08);display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:#a1a7b3;">⌄</div>
+                <div style="font-size:1.35rem; color:#4b5563;">{month_label}</div>
+                <div style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
+                    <span style="padding:8px 12px; border-radius:999px; background:#eef8f1; color:#2f8c57; font-size:0.88rem;">Paid EMI: {paid_days}</span>
+                    <span style="padding:8px 12px; border-radius:999px; background:#fff0eb; color:#d86a43; font-size:0.88rem;">Delayed: {missed_days}</span>
+                    <span style="padding:8px 12px; border-radius:999px; background:#eef1ff; color:#4d61e8; font-size:0.88rem;">Inflow days: {inflow_days}</span>
+                    <span style="padding:8px 12px; border-radius:999px; background:#f1eeff; color:#7a69d9; font-size:0.88rem;">Outflow days: {outflow_days}</span>
+                </div>
+            </div>
+            <div style="border-top:1px solid rgba(28,28,30,0.08); padding-top:18px;">
+                <div style="display:grid; grid-template-columns: repeat(7, 48px); gap:12px 14px; justify-content:start; margin-bottom:16px;">{week_labels}</div>
+                <div style="display:grid; grid-template-columns: repeat(7, 48px); gap:12px 14px; justify-content:start;">{cells_html}</div>
+            </div>
+            <div style="margin-top:22px; border-top:1px solid rgba(28,28,30,0.08); padding-top:18px;">
+                <p style="margin:0 0 10px 0; color:#636366; font-size:0.95rem; line-height:1.45;">Green shows successful EMI payments, orange shows missed or delayed EMI days, blue marks business inflows, and purple marks business outflows in this borrower's latest activity window.</p>
+                <div style="display:flex; gap:20px; flex-wrap:wrap; color:#4b5563; font-size:0.95rem;">
+                    <span><strong>Rs {paid_amount:,.0f}</strong> EMI paid</span>
+                    <span><strong>Rs {missed_amount:,.0f}</strong> delayed/default EMI</span>
+                    <span><strong>Rs {inflow_amount:,.0f}</strong> inflow received</span>
+                    <span><strong>Rs {outflow_amount:,.0f}</strong> outflow posted</span>
+                </div>
+            </div>
+        </div>
+        """
+    ).strip()
+
+
+def render_borrower_dashboard(borrower_id: str) -> None:
+    transparency = detector.analyze_borrower(borrower_id).as_dict()
+
+    _, top_right = st.columns([6, 1])
+    with top_right:
+        if st.button("Logout", key="borrower_logout", use_container_width=True):
+            logout()
+
+    borrower_name = transparency.get("name", "Borrower").title()
+    st.markdown(f"<h2 style='margin-top: -32px; margin-bottom: 24px;'>Hello, {escape(borrower_name)} 👋</h2>", unsafe_allow_html=True)
+    card_left, card_right = st.columns([1.15, 1])
+    with card_left:
+        st.markdown(f"### Loan Health Summary for {transparency['name']}")
+        st.caption(f"Borrower ID: {borrower_id}")
+        st.markdown(render_segmented_health_bar(transparency['health_score'], "Borrower Health"), unsafe_allow_html=True)
+        st.info(f"The portfolio peer benchmark for similar borrowers is {transparency['peer_score']}/100.")
+        st.write("Regional context:")
+        st.write(
+            f"Your loan region has a stress factor of {transparency['regional_stress_factor']}. "
+            "This is used so the bank does not evaluate borrowers without context."
+        )
+        st.write("Repayment guidance:")
+        st.write(transparency["recommendation"])
+
+    with card_right:
+        borrower_peer = pd.DataFrame(
+            [
+                {"Label": "Borrower Health", "Score": transparency["health_score"]},
+                {"Label": "Peer Benchmark", "Score": transparency["peer_score"]},
+                {"Label": "Regional Stress x100", "Score": int(transparency["regional_stress_factor"] * 100)},
+            ]
+        )
+        fig = px.bar(
+            borrower_peer,
+            x="Label",
+            y="Score",
+            color="Label",
+            title="Borrower vs Context",
+            text="Score",
+        )
+        fig.update_layout(showlegend=False, margin=dict(l=0, r=0, t=40, b=0))
+        st.plotly_chart(style_figure(fig), use_container_width=True, theme=None)
+
+    txns = transactions_df[transactions_df["borrower_id"] == borrower_id].sort_values("timestamp", ascending=False)
+    st.markdown("### Transaction Summary")
+    borrower_window_label = st.selectbox(
+        "Transaction window",
+        ["30 Days", "60 Days", "90 Days", "All Available"],
+        index=1,
+        key=f"borrower_window_{borrower_id}",
+    )
+    borrower_window_days = {"30 Days": 30, "60 Days": 60, "90 Days": 90, "All Available": 10000}[borrower_window_label]
+    st.markdown(render_transaction_days_card(txns, borrower_window_days), unsafe_allow_html=True)
+
+    st.markdown("### Payment Schedule")
+    schedule_data = []
+    for _, row in txns.iterrows():
+        if pd.notnull(row["timestamp"]):
+            date_str = row["timestamp"].strftime("%m/%d/%Y") if hasattr(row["timestamp"], "strftime") else str(row["timestamp"])
+        else:
+            date_str = ""
+        schedule_data.append({
+            "Payment Date": date_str,
+            "Name": transparency["name"],
+            "Payment Amount": f"Rs {row['amount']:,.2f}" if pd.notna(row['amount']) else "-",
+            "Type": str(row["transaction_type"]).replace("_", " ").title(),
+            "Status": "Paid" if str(row["status"]).upper() in ["COMPLETED", "SUCCESS", "PAID"] else str(row["status"]).title(),
+            "Balance Left": f"Rs {row['balance_after']:,.2f}" if pd.notna(row['balance_after']) else "-"
+        })
+    schedule_df = pd.DataFrame(schedule_data)
+    if not schedule_df.empty:
+        render_glass_table(schedule_df, max_height=520)
+    else:
+        st.info("No payment history available.")
+
+
+def render_borrower_knowledge_graph(borrower_id: str, detector, portfolio_df: pd.DataFrame) -> None:
+    G_full = detector.get_networkx_graph()
+    if not G_full or borrower_id not in G_full.nodes:
+        st.info("Graph data not available for this borrower.")
+        return
+
+    import networkx as nx
+    G = nx.ego_graph(G_full, borrower_id, radius=2)
+    
+    pos = nx.spring_layout(G, k=0.25, iterations=40, seed=42)
+    
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+    
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=0.4, color='rgba(160, 160, 175, 0.5)'),
+        hoverinfo='none',
+        mode='lines'
+    )
 
     node_x = []
     node_y = []
     node_text = []
     node_color = []
-    for node_id, attrs in graph.nodes(data=True):
-        x, y = pos[node_id]
+    node_size = []
+    node_symbol = []
+    node_line_width = []
+    node_line_color = []
+    
+    for node in G.nodes():
+        x, y = pos[node]
         node_x.append(x)
         node_y.append(y)
-        status = attrs.get("status", "ACTIVE")
-        risk = int(attrs.get("risk_score") or 0)
-        node_text.append(f"{node_id}<br>Status: {status}<br>Risk: {risk}")
-        if status == "FROZEN":
-            node_color.append("#DC2626")
-        elif status == "UNDER_REVIEW":
-            node_color.append("#EA580C")
+        
+        node_type = G.nodes[node].get("type", "unknown")
+        
+        if node == borrower_id:
+            node_size.append(22)
+            node_line_width.append(4)
+            node_line_color.append('rgba(0,0,0,0.9)')
         else:
-            node_color.append("#16A34A")
+            node_line_width.append(1)
+            node_line_color.append('rgba(255,255,255,0.8)')
+            
+        if node_type == "borrower":
+            try:
+                b_risk = portfolio_df.loc[portfolio_df["borrower_id"] == node, "risk_score"].values[0]
+                b_name = portfolio_df.loc[portfolio_df["borrower_id"] == node, "name"].values[0]
+            except:
+                b_risk = 50
+                b_name = node
+            node_color.append(b_risk)
+            if node != borrower_id:
+                node_size.append(12)
+            node_symbol.append('circle')
+            h_text = "<b>(Selected) " if node == borrower_id else ""
+            node_text.append(f"{h_text}Borrower: {b_name}<br>GNN Risk: {b_risk}")
+        elif node_type == "scheme":
+            node_color.append(30)
+            if node != borrower_id: node_size.append(24)
+            node_symbol.append('diamond')
+            node_text.append(f"Scheme Hub<br>{str(node).replace('SCHEME::', '')}")
+        elif node_type == "region":
+            node_color.append(75)
+            if node != borrower_id: node_size.append(28)
+            node_symbol.append('square')
+            node_text.append(f"Region Hub<br>{str(node).replace('REGION::', '')}")
+        else:
+            node_color.append(50)
+            if node != borrower_id: node_size.append(20)
+            node_symbol.append('star')
+            node_text.append(f"Category Hub<br>{str(node).replace('CATEGORY::', '')}")
 
     node_trace = go.Scatter(
-        x=node_x,
-        y=node_y,
-        hovertext=node_text,
-        mode="markers+text",
-        hoverinfo="text",
-        textposition="top center",
-        text=[str(node) for node in graph.nodes()],
-        marker=dict(showscale=False, size=14, line_width=1.5, color=node_color, line=dict(color="#E2E8F0")),
-        textfont=dict(color="#1F2937", size=11),
-        name="Accounts",
-    )
-
-    fig = go.Figure(
-        data=[approved_edge_trace, blocked_edge_trace, node_trace],
-        layout=go.Layout(
-            title=dict(text="Neo4j Transaction Graph", font=dict(color="#0F172A")),
-            showlegend=True,
-            hovermode="closest",
-            margin=dict(b=0, l=0, r=0, t=42),
-            plot_bgcolor="rgba(255,255,255,0)",
-            paper_bgcolor="rgba(255,255,255,0)",
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        ),
-    )
-    st.plotly_chart(fig, use_container_width=True, key=plot_key)
-    st.caption(f"Accounts: {len(nodes)} | Transfers: {len(edges)}")
-
-def build_receipt_pdf(txn, verdict):
-    """Generate a clean transaction receipt PDF."""
-    if not REPORTLAB_AVAILABLE:
-        return None
-
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-
-    y = height - 60
-    c.setFont("Helvetica-Bold", 28)
-    c.drawString(72, y, "Transaction Receipt")
-
-    c.setFont("Helvetica", 12)
-    c.drawRightString(width - 72, y, f"Receipt #{txn.get('txn_id', 'N/A')}")
-    y -= 28
-    c.drawRightString(width - 72, y, datetime.now().strftime("%B %d, %Y %H:%M:%S"))
-
-    y -= 50
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(72, y, "Details")
-
-    y -= 24
-    c.setFont("Helvetica", 13)
-    rows = [
-        ("From Account", str(txn.get("from_account", "N/A"))),
-        ("To Account", str(txn.get("to_account", "N/A"))),
-        ("Transaction ID", str(txn.get("txn_id", "N/A"))),
-        ("Amount", f"{float(txn.get('amount', 0.0)):.2f}"),
-        ("Timestamp", str(txn.get("timestamp", "N/A"))),
-        ("Result", verdict),
-        ("Txn Status", str(txn.get("status", "N/A"))),
-    ]
-
-    for key, value in rows:
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(72, y, f"{key}:")
-        c.setFont("Helvetica", 12)
-        c.drawString(210, y, value)
-        y -= 22
-
-    y -= 8
-    c.setLineWidth(0.8)
-    c.line(72, y, width - 72, y)
-    y -= 28
-    c.setFont("Helvetica", 12)
-    c.drawString(72, y, "Generated by CyberFin Fusion")
-
-    c.save()
-    buffer.seek(0)
-    return buffer.getvalue()
-
-# ==========================================
-# MAIN APP EXECUTION
-# ==========================================
-# Landing gate state
-if "dashboard_landing_done" not in st.session_state:
-    st.session_state.dashboard_landing_done = False
-if "landing_nav_tab" not in st.session_state:
-    st.session_state.landing_nav_tab = "Home"
-
-# Cover landing page shown first
-if not st.session_state.dashboard_landing_done:
-    panel_copy = {
-        "Home": ("Home", "Welcome to CyberFin Fusion. This landing page is now interactive and routes to your core dashboard."),
-        "Contact Us": ("Contact Us", load_contact_us_content()),
-        "Help": ("Help", load_help_content()),
-        "About Us": ("About Us", load_about_us_content())
-    }
-
-    cutout_1 = image_to_data_uri("1.jpg")
-    cutout_2 = image_to_data_uri("2.webp")
-    cutout_html = ""
-    if cutout_1:
-        cutout_html += f'<div class="landing-cutout one" style="background-image:url(\'{cutout_1}\');"></div>'
-    if cutout_2:
-        cutout_html += f'<div class="landing-cutout two" style="background-image:url(\'{cutout_2}\');"></div>'
-
-    home_html = f"""
-    <div class="landing-wrap">
-        {cutout_html}
-        <div class="landing-nav-anchor"></div>
-        <div class="landing-card">
-            <div class="row">10.365</div>
-            <div class="row small">18,500.0</div>
-        </div>
-        <div class="landing-headline">
-            <span class="landing-grad">CyberFin</span>
-        </div>
-        <div class="landing-sub">Unified Cyber-Financial Intelligence</div>
-        <div class="landing-desc">Detect and stop money mule networks by linking cyber threats with financial transactions in real time.</div>
-        <div class="landing-features">Graph Detection • Real-Time Risk • AI Explanations • AML + Cyber Fusion</div>
-        <div class="landing-note"><strong>CyberFin Fusion</strong></div>
-    </div>
-    """
-
-    if st.session_state.landing_nav_tab == "Home":
-        landing_html = home_html
-    else:
-        page_title, page_body = panel_copy.get(st.session_state.landing_nav_tab, panel_copy["Home"])
-        page_body_html = html.escape(page_body).replace("\n", "<br>")
-        landing_html = f"""
-        <div class="landing-wrap">
-            {cutout_html}
-            <div class="landing-nav-anchor"></div>
-            <div class="landing-panel" style="top: 46%; width:min(980px,92vw); pointer-events:auto;">
-                <h3>{html.escape(page_title)}</h3>
-                <p style="text-align:left; white-space:normal;">{page_body_html}</p>
-            </div>
-        </div>
-        """
-
-    st.markdown(
-        f"""
-        <style>
-            [data-testid="stSidebar"] {{ display: none !important; }}
-            .stApp {{ background: #05060A !important; }}
-            [data-testid="stAppViewContainer"] {{ background: #05060A !important; }}
-            .main .block-container {{ max-width: 100% !important; padding: 0 !important; margin: 0 !important; }}
-        </style>
-        {landing_html}
-        """,
-        unsafe_allow_html=True
-    )
-    l_sp_l, l_nav1, l_nav2, l_nav3, l_nav4, l_sp_r, l_act1 = st.columns([1.3, 0.9, 1.05, 0.7, 0.9, 3.6, 1.0])
-    with l_nav1:
-        if st.button("Home", key="landing_home", type="primary" if st.session_state.landing_nav_tab == "Home" else "secondary", use_container_width=True):
-            st.session_state.landing_nav_tab = "Home"
-            st.rerun()
-    with l_nav2:
-        if st.button("Contact Us", key="landing_contact", type="primary" if st.session_state.landing_nav_tab == "Contact Us" else "secondary", use_container_width=True):
-            st.session_state.landing_nav_tab = "Contact Us"
-            st.rerun()
-    with l_nav3:
-        if st.button("Help", key="landing_help", type="primary" if st.session_state.landing_nav_tab == "Help" else "secondary", use_container_width=True):
-            st.session_state.landing_nav_tab = "Help"
-            st.rerun()
-    with l_nav4:
-        if st.button("About Us", key="landing_about", type="primary" if st.session_state.landing_nav_tab == "About Us" else "secondary", use_container_width=True):
-            st.session_state.landing_nav_tab = "About Us"
-            st.rerun()
-    with l_act1:
-        if st.button("Get started", key="landing_get_started", use_container_width=True):
-            st.session_state.dashboard_landing_done = True
-            st.rerun()
-    st.stop()
-
-st.title("🏦 CyberFin Fusion - Enterprise Financial Intelligence")
-st.markdown("<p style='color: #64748B; font-size: 1.05rem;'>Unified Anti-Money Laundering & Threat Detection Portal</p>", unsafe_allow_html=True)
-
-cyber_df, txn_df = load_data()
-detector = initialize_detector(cyber_df, txn_df)
-explainer = initialize_explainer()
-repo = initialize_repo()
-backend_base_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
-
-st.sidebar.header("⚙️ Controls")
-
-# API Key check via environment
-api_key = os.getenv("GEMINI_API_KEY")
-
-# Gemini AI Status
-if explainer.api_available and api_key:
-    st.sidebar.success("✅ Gemini AI: Active", icon="🤖")
-else:
-    st.sidebar.warning("⚠️ Gemini AI: Fallback Mode", icon="⚠️")
-    st.sidebar.info("Add GEMINI_API_KEY to your .env file to enable AI features.")
-
-# Graph Database Status
-if hasattr(detector, 'db_stats'):
-    db_type = detector.db_stats.get('database', 'Unknown')
-    nodes = detector.db_stats['nodes']
-    edges = detector.db_stats['edges']
-    
-    if 'Neo4j' in db_type:
-        st.sidebar.success(f"✅ Graph DB: Neo4j (Connected)", icon="🗄️")
-    else:
-        st.sidebar.success(f"✅ Graph DB: Neo4j Architecture", icon="🗄️")
-    st.sidebar.caption(f"📊 {nodes:,} nodes, {edges:,} edges")
-
-if repo.client:
-    st.sidebar.success("✅ Accounts DB: Supabase", icon="🧱")
-else:
-    st.sidebar.warning("⚠️ Accounts DB: Fallback mode", icon="🧪")
-
-risk_threshold = st.sidebar.slider("Risk Score Threshold", 0, 100, 50)
-
-st.sidebar.subheader("📅 Timeline Filter")
-min_time = cyber_df['timestamp'].min()
-max_time = cyber_df['timestamp'].max()
-time_range = st.sidebar.slider("Select Time Range (hours ago)", min_value=0, max_value=24, value=(0, 24))
-
-time_start = max_time - timedelta(hours=time_range[1])
-time_end = max_time - timedelta(hours=time_range[0])
-filtered_cyber = cyber_df[(cyber_df['timestamp'] >= time_start) & (cyber_df['timestamp'] <= time_end)]
-filtered_txns = txn_df[(txn_df['timestamp'] >= time_start) & (txn_df['timestamp'] <= time_end)]
-
-st.sidebar.info(f"📊 Showing {len(filtered_cyber):,} events and {len(filtered_txns):,} transactions")
-
-VIEW_OPTIONS = ["Dashboard", "Live Graph", "Account Lookup", "Ring Analysis", "Initiate Transaction"]
-if "view_mode" not in st.session_state or st.session_state.view_mode not in VIEW_OPTIONS:
-    st.session_state.view_mode = VIEW_OPTIONS[0]
-
-top_title, top_overview, top_revenue, top_account, top_ring, top_txn, top_spacer = st.columns([2.1, 0.9, 1.2, 1.1, 1.1, 1.2, 2.1])
-with top_title:
-    st.markdown("**CyberFin Fusion Console**")
-with top_overview:
-    if st.button("Overview", key="e_top_overview", type="primary" if st.session_state.view_mode == "Dashboard" else "secondary", use_container_width=True):
-        st.session_state.view_mode = "Dashboard"
-        st.rerun()
-with top_revenue:
-    if st.button("Revenue Signals", key="e_top_revenue", type="primary" if st.session_state.view_mode == "Live Graph" else "secondary", use_container_width=True):
-        st.session_state.view_mode = "Live Graph"
-        st.rerun()
-with top_account:
-    if st.button("Account Lookup", key="e_top_account", type="primary" if st.session_state.view_mode == "Account Lookup" else "secondary", use_container_width=True):
-        st.session_state.view_mode = "Account Lookup"
-        st.rerun()
-with top_ring:
-    if st.button("Ring Analysis", key="e_top_ring", type="primary" if st.session_state.view_mode == "Ring Analysis" else "secondary", use_container_width=True):
-        st.session_state.view_mode = "Ring Analysis"
-        st.rerun()
-with top_txn:
-    if st.button("Initiate Transaction", key="e_top_txn", type="primary" if st.session_state.view_mode == "Initiate Transaction" else "secondary", use_container_width=True):
-        st.session_state.view_mode = "Initiate Transaction"
-        st.rerun()
-
-view_mode = st.session_state.view_mode
-
-# ------------------------------------------
-# VIEW: DASHBOARD
-# ------------------------------------------
-if view_mode == "Dashboard":
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    flagged_accounts = detector.get_flagged_accounts(threshold=risk_threshold)
-    rings = detector.detect_mule_rings()
-    
-    with col1: st.metric("🚨 Flagged Accounts", len(flagged_accounts))
-    with col2: st.metric("🔗 Mule Rings Detected", len(rings))
-    with col3: st.metric("📊 Total Events", f"{len(filtered_cyber):,}")
-    with col4: st.metric("💰 Total Transactions", f"{len(filtered_txns):,}")
-    with col5: st.metric("🧊 Frozen Accounts", repo.frozen_accounts_count())
-    with col6: st.metric("⛔ Blocked Txns", repo.blocked_transactions_count())
-
-    st.subheader("⚠️ High-Risk Accounts")
-    if flagged_accounts:
-        risk_data = []
-        for acc in flagged_accounts[:20]:
-            rec = repo.get_account(acc["account_id"]) or repo.ensure_account(acc["account_id"])
-            risk_data.append({
-                'Account': acc['account_id'],
-                'Risk Score': acc['risk_score'],
-                'Status': rec.get("status", "ACTIVE"),
-                'Cyber Flags': ', '.join(acc['cyber_flags']) if acc['cyber_flags'] else 'None',
-                'Financial Flags': ', '.join(acc['financial_flags']) if acc['financial_flags'] else 'None'
-            })
-        df_risks = pd.DataFrame(risk_data)
-        st.dataframe(df_risks, use_container_width=True)
-        
-        fig_risk = px.histogram(df_risks, x='Risk Score', nbins=20, title="Risk Score Distribution", color_discrete_sequence=['#5B6CFF'])
-        fig_risk.update_layout(
-            template="plotly_white",
-            plot_bgcolor='rgba(255,255,255,0)',
-            paper_bgcolor='rgba(255,255,255,0)',
-            font=dict(color="#0F172A"),
-            legend=dict(font=dict(color="#0F172A"))
+        x=node_x, y=node_y,
+        mode='markers',
+        hoverinfo='text',
+        text=node_text,
+        marker=dict(
+            showscale=True,
+            colorscale='YlOrRd',
+            color=node_color,
+            size=node_size,
+            symbol=node_symbol,
+            colorbar=dict(
+                thickness=10,
+                title='Embedded Risk'
+            ),
+            line=dict(width=node_line_width, color=node_line_color)
         )
-        st.plotly_chart(fig_risk, use_container_width=True)
-    
-    st.subheader("🔗 Detected Mule Rings")
-    if rings:
-        ring_data = [{'Ring ID': ring['ring_id'], 'Accounts': ring['size'], 'Shared Beneficiaries': ', '.join(ring['shared_beneficiaries'])} for ring in rings[:10]]
-        df_rings = pd.DataFrame(ring_data)
-        st.dataframe(df_rings, use_container_width=True)
-    
-    st.subheader("📈 Event Timeline")
-    event_counts = filtered_cyber.groupby([pd.Grouper(key='timestamp', freq='1h'), 'event_type']).size().reset_index(name='count')
-    fig_timeline = px.line(event_counts, x='timestamp', y='count', color='event_type', title="Cyber Events Over Time", color_discrete_sequence=px.colors.qualitative.Set2)
-    fig_timeline.update_layout(
-        template="plotly_white",
-        plot_bgcolor='rgba(255,255,255,0)',
-        paper_bgcolor='rgba(255,255,255,0)',
-        font=dict(color="#0F172A"),
-        legend=dict(
-            font=dict(color="#0F172A", size=18),
-            title=dict(font=dict(color="#0F172A", size=20))
-        ),
-        height=620,
-        margin=dict(l=20, r=20, t=60, b=20)
     )
-    st.plotly_chart(fig_timeline, use_container_width=True)
 
-# ------------------------------------------
-# VIEW: LIVE GRAPH
-# ------------------------------------------
-elif view_mode == "Live Graph":
-    st.subheader("🕸️ Network Graph Visualization")
-    st.info("Graph is loaded directly from Neo4j. Refresh or restart does not reset it.")
-    refresh_col, spacer_col = st.columns([1, 5])
-    with refresh_col:
-        refresh_clicked = st.button("Refresh Graph", key="refresh_graph_live")
-    if refresh_clicked:
-        st.rerun()
+    fig = go.Figure(data=[edge_trace, node_trace],
+        layout=go.Layout(
+            showlegend=False,
+            hovermode='closest',
+            height=450,
+            margin=dict(b=10,l=5,r=5,t=10),
+            paper_bgcolor="rgba(255,255,255,0.45)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+    )
+    
+    fig.update_layout(
+        margin=dict(l=16, r=16, t=16, b=16),
+        paper_bgcolor="rgba(255, 255, 255, 0.45)"
+    )
 
-    graph_payload, graph_error = fetch_backend_graph()
-    if graph_error:
-        st.warning(graph_error)
-    else:
-        render_transaction_graph(graph_payload, "live_neo4j_graph")
+    st.plotly_chart(fig, use_container_width=True, theme=None)
+
+
+def render_ego_network(borrower_id: str, detector) -> None:
+    import networkx as nx
+    import plotly.graph_objects as go
+    
+    G = detector.get_networkx_graph()
+    if borrower_id not in G:
+        st.warning("Borrower not found in the graph.")
+        return
+        
+    ego = nx.ego_graph(G, borrower_id, radius=2)
+    pos = nx.spring_layout(ego, seed=42)
+    
+    edge_x = []
+    edge_y = []
+    for edge in ego.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+        
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=0.5, color='rgba(150, 150, 150, 0.5)'),
+        hoverinfo='none',
+        mode='lines'
+    )
+    
+    node_x = []
+    node_y = []
+    node_color = []
+    node_text = []
+    node_size = []
+    
+    for node in ego.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+        
+        if node == borrower_id:
+            color = '#3b82f6'  # Blue center
+            size = 24
+        elif str(node).startswith("SCHEME") or str(node).startswith("REGION") or str(node).startswith("CATEGORY"):
+            color = '#9ca3af'  # Gray for attributes
+            size = 12
+        else:
+            try:
+                risk = detector.calculate_risk_score(node)
+                if risk >= 70:
+                    color = '#ef4444' # Red
+                elif risk >= 45:
+                    color = '#f59e0b' # Yellow
+                else:
+                    color = '#10b981' # Green
+            except Exception:
+                color = '#10b981'
+            size = 16
+            
+        node_color.append(color)
+        node_size.append(size)
+        node_text.append(str(node))
+        
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers',
+        hoverinfo='text',
+        marker=dict(
+            showscale=False,
+            color=node_color,
+            size=node_size,
+            line=dict(width=1, color='white')
+        ),
+        text=node_text
+    )
+    
+    fig = go.Figure(data=[edge_trace, node_trace],
+                 layout=go.Layout(
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=0,l=0,r=0,t=0),
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                 )
+    fig.update_layout(height=450)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
+
+def render_satark_recover_tab(filtered: pd.DataFrame, portfolio_df: pd.DataFrame, detector, repo, explainer) -> None:
+    st.subheader("Satark-Recover: AI Risk Intelligence")
+    
+    borrower_options = filtered["borrower_id"].tolist() if not filtered.empty else portfolio_df["borrower_id"].tolist()
+    selected_borrower = st.selectbox("Select borrower for AI Analysis", borrower_options, key="satark_recover_select")
+    
+    if not selected_borrower:
+        return
+
+    borrower_record = detector.analyze_borrower(selected_borrower).as_dict()
+    profile_series = borrowers_df[borrowers_df["borrower_id"] == selected_borrower]
+    if profile_series.empty:
+        return
+    borrower_profile = profile_series.iloc[0]
+    
+    st.markdown("---")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown(f"### Borrower Summary: {borrower_record['name']}")
+        st.write(f"**Scheme:** {borrower_record['loan_scheme']} | **Region:** {borrower_record['region']}")
+        st.write(f"**Loan Amount:** Rs {borrower_profile.loan_amount:,.0f}")
+        st.write(f"**Final Risk Level:** {borrower_record['risk_level']}")
+    
+    with col2:
+        st.metric("Behavioural Risk Score", borrower_record['risk_score'])
+        st.metric("Peer Comparison", f"{borrower_record['peer_score']} (Baseline)")
+        st.metric("Regional Stress", format(borrower_record['regional_stress_factor'], ".2f"))
 
     st.markdown("---")
-    st.subheader("🔗 Mule Ring Network Graph")
-    st.caption("Legacy ring visualization restored for investigation workflows.")
-
-    rings = detector.detect_mule_rings()
-    if not rings:
-        st.info("No mule rings detected in current analysis dataset.")
-    else:
-        ring_lookup = {int(r["ring_id"]): r for r in rings}
-        ring_ids = sorted(ring_lookup.keys())
-        selected_ring_id = st.selectbox(
-            "Select Ring to Visualize",
-            ring_ids,
-            key="live_graph_ring_selector",
-            format_func=lambda rid: f"Ring {rid}",
-        )
-        ring_idx = int(selected_ring_id)
-        ring = ring_lookup[ring_idx]
-
-        st.info(
-            f"Visualizing Ring {ring_idx}: {ring['size']} accounts, "
-            f"{len(ring['shared_beneficiaries'])} shared beneficiaries"
-        )
-
-        subgraph = nx.Graph()
-        max_nodes = 180
-        beneficiaries = ring['shared_beneficiaries'][:8]
-        max_accounts = max(1, max_nodes - len(beneficiaries))
-        accounts = ring['accounts'][:max_accounts]
-
-        if len(ring['accounts']) > len(accounts):
-            st.warning(f"Graph limited to {max_nodes} nodes for performance. Showing {len(accounts)} accounts.")
-
-        for acc in accounts:
-            for neighbor in beneficiaries:
-                subgraph.add_edge(acc, neighbor)
-
-        if subgraph.number_of_nodes() == 0:
-            st.info("No edges available for selected ring.")
-        else:
-            # Deterministic bipartite layout keeps rendering fast for large rings.
-            pos = {}
-            account_nodes = [n for n in subgraph.nodes() if str(n).startswith("ACC_")]
-            beneficiary_nodes = [n for n in subgraph.nodes() if str(n).startswith("BEN_")]
-            for idx, node in enumerate(account_nodes):
-                y = 1 - (2 * idx / max(1, len(account_nodes) - 1)) if len(account_nodes) > 1 else 0
-                pos[node] = (-1.0, y)
-            for idx, node in enumerate(beneficiary_nodes):
-                y = 1 - (2 * idx / max(1, len(beneficiary_nodes) - 1)) if len(beneficiary_nodes) > 1 else 0
-                pos[node] = (1.0, y)
-            for node in subgraph.nodes():
-                if node not in pos:
-                    pos[node] = (0.0, 0.0)
-            edge_trace = go.Scatter(x=[], y=[], line=dict(width=0.8, color='#94A3B8'), hoverinfo='none', mode='lines')
-            for edge in subgraph.edges():
-                x0, y0 = pos[edge[0]]
-                x1, y1 = pos[edge[1]]
-                edge_trace['x'] += tuple([x0, x1, None])
-                edge_trace['y'] += tuple([y0, y1, None])
-
-            node_trace = go.Scatter(
-                x=[], y=[], text=[], mode='markers+text', hoverinfo='text',
-                marker=dict(showscale=False, size=10, line_width=2, color=[]),
-                textfont=dict(color="#1F2937", size=13)
-            )
-            for node in subgraph.nodes():
-                x, y = pos[node]
-                node_trace['x'] += tuple([x])
-                node_trace['y'] += tuple([y])
-                node_trace['text'] += tuple([node[:15]])
-                if node.startswith('ACC_'):
-                    node_trace['marker']['color'] += tuple(['#EF4444'])
-                elif node.startswith('BEN_'):
-                    node_trace['marker']['color'] += tuple(['#F59E0B'])
-                elif node.startswith('DEV_'):
-                    node_trace['marker']['color'] += tuple(['#06B6D4'])
-                elif node.startswith('IP_'):
-                    node_trace['marker']['color'] += tuple(['#3B82F6'])
-                else:
-                    node_trace['marker']['color'] += tuple(['#60A5FA'])
-
-            fig = go.Figure(data=[edge_trace, node_trace], layout=go.Layout(
-                title=dict(text=f"Ring {ring_idx} Network", font=dict(color="#0F172A")),
-                showlegend=False, hovermode='closest', margin=dict(b=0, l=0, r=0, t=40),
-                plot_bgcolor='rgba(255,255,255,0)', paper_bgcolor='rgba(255,255,255,0)',
-                hoverlabel=dict(bgcolor="#0B1220", font=dict(color="#FFFFFF", size=13)),
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                height=620))
-            st.plotly_chart(fig, use_container_width=True, key=f"live_graph_ring_{ring_idx}")
-
-        st.write(f"**Accounts in Ring:** {', '.join(ring['accounts'][:10])}")
-        st.write(f"**Shared Beneficiaries:** {', '.join(ring['shared_beneficiaries'])}")
-
-        if st.button("🤖 Explain This Ring with AI", key=f"live_graph_ai_button_{ring_idx}"):
-            with st.spinner("Generating AI explanation..."):
-                beneficiaries_str = ', '.join(ring['shared_beneficiaries'][:5])
-                explanation = explainer.explain_ring(ring_idx, ring['size'], beneficiaries_str, 85)
-                st.markdown("### 🤖 AI Analysis")
-                st.info(explanation)
-
-# ------------------------------------------
-# VIEW: RING ANALYSIS
-# ------------------------------------------
-elif view_mode == "Ring Analysis":
-    st.subheader("🔍 Detailed Ring Analysis")
-    rings = detector.detect_mule_rings()
     
-    if rings:
-        ring_lookup = {int(r["ring_id"]): r for r in rings}
-        ring_ids = sorted(ring_lookup.keys())
-        selected_ring_id = st.selectbox(
-            "Select Ring for Analysis",
-            ring_ids,
-            key="ring_analysis_selector",
-            format_func=lambda rid: f"Ring {rid}",
-        )
-        ring_idx = int(selected_ring_id)
-        ring = ring_lookup[ring_idx]
-        
-        col1, col2, col3 = st.columns(3)
-        with col1: st.metric("Ring Size", f"{ring['size']} accounts")
-        with col2: st.metric("Shared Beneficiaries", len(ring['shared_beneficiaries']))
-        with col3: st.metric("Risk Level", "🔴 CRITICAL" if ring['size'] > 10 else "🟡 HIGH")
-        
-        st.subheader("📋 Accounts in Ring")
-        st.write(", ".join(ring['accounts'][:20]))
-        if len(ring['accounts']) > 20: st.info(f"... and {len(ring['accounts']) - 20} more accounts")
-        
-        st.subheader("💰 Shared Beneficiaries")
-        st.write(", ".join(ring['shared_beneficiaries']))
-        
-        if st.button("🤖 Generate AI Explanation for This Ring"):
-            with st.spinner("Analyzing ring pattern..."):
-                account_data = {'account_id': f"Ring_{ring_idx}", 'risk_score': 85}
-                explanation = explainer.explain_mule_pattern(account_data, ['multiple_accounts', 'shared_beneficiaries', 'coordinated_activity'], ['rapid_transactions', 'near_threshold_amount'], {'size': ring['size'], 'beneficiaries': ring['shared_beneficiaries']})
-                st.markdown("### 🤖 AI Analysis")
-                st.info(explanation)
-        
-        if st.button("🎭 Show Likely Victim Scenario"):
-            sample_account = random.choice(ring['accounts'][:10])
-            show_victim_popup(sample_account)
-        
-        if st.button("📥 Export Ring Data"):
-            ring_export = pd.DataFrame({'Ring_ID': [ring['ring_id']] * len(ring['accounts']), 'Account_ID': ring['accounts'], 'Shared_Beneficiaries': [', '.join(ring['shared_beneficiaries'])] * len(ring['accounts']), 'Ring_Size': [ring['size']] * len(ring['accounts'])})
-            csv = ring_export.to_csv(index=False)
-            st.download_button(label="⬇️ Download Ring Data", data=csv, file_name=f"Ring_{ring_idx}_Export_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+    st.markdown("### Local Risk Exposure Network")
+    st.caption("This network represents borrower risk propagation patterns used by the AI risk model.")
+    render_ego_network(selected_borrower, detector)
 
-# ------------------------------------------
-# VIEW: ACCOUNT LOOKUP
-# ------------------------------------------
-elif view_mode == "Account Lookup":
-    st.subheader("🔍 Account Risk Analysis")
+    st.markdown("---")
     
-    input_col, button_col = st.columns([4, 1])
-    with input_col:
-        account_id = st.text_input("Enter Account ID (e.g., ACC_002747)")
-    with button_col:
-        st.markdown("<div style='height: 1.75rem;'></div>", unsafe_allow_html=True)
-        analyze_clicked = st.button("Analyze", type="primary", use_container_width=True)
-    
-    if account_id != st.session_state.current_viewed_account:
-        st.session_state.current_viewed_account = account_id
-        st.session_state.ai_outputs = {}
-    
-    if account_id and analyze_clicked:
-        st.session_state.ai_outputs = {} 
-        
-    if account_id and account_id in cyber_df['account_id'].values:
-        risk_score = detector.calculate_risk_score(account_id)
-        repo.upsert_account_risk(account_id, int(risk_score))
-        account_row = repo.get_account(account_id) or repo.ensure_account(account_id)
-        account_status = account_row.get("status", "ACTIVE")
-        cyber_flags = detector.detect_cyber_anomalies(account_id)
-        fin_flags = detector.detect_financial_velocity(account_id)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Risk Score", f"{risk_score}/100")
-            st.markdown(f"Status: {status_badge(account_status)}", unsafe_allow_html=True)
-            if risk_score > risk_threshold:
-                st.markdown('<div class="alert-critical">🚨 CRITICAL RISK DETECTED</div>', unsafe_allow_html=True)
-            else:
-                st.success("✅ NORMAL")
-            if account_status == "FROZEN":
-                st.error("Account Frozen - Transactions Blocked")
-        
-        with col2:
-            st.markdown("**Cyber Flags:**")
-            if cyber_flags:
-                for flag in cyber_flags: st.markdown(f"- <span style='color:#ffb3c1;'>{flag}</span>", unsafe_allow_html=True)
-            else: st.write("None")
+    if st.button("Run AI Risk Analysis", type="primary", use_container_width=True):
+        with st.spinner("Analyzing risk with Gemini AI..."):
+            behavioral_flags = borrower_record["behavioral_flags"]
+            contextual_flags = borrower_record["contextual_flags"]
             
-            st.markdown("**Financial Flags:**")
-            if fin_flags:
-                for flag in fin_flags: st.markdown(f"- <span style='color:#ffb3c1;'>{flag}</span>", unsafe_allow_html=True)
-            else: st.write("None")
-        
-        st.subheader("⚡ Quick Actions")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if account_status == "FROZEN":
-                st.button("🛑 Freeze Account", disabled=True, use_container_width=True)
-                st.error("❄️ Account is currently frozen.")
-            elif risk_score >= risk_threshold:
-                if st.button("🛑 Freeze Account", use_container_width=True):
-                    freeze_response = safe_post_json(
-                        f"{backend_base_url}/accounts/{account_id}/freeze",
-                        payload={
-                            "reason": f"Risk score {int(risk_score)} exceeded dashboard threshold {int(risk_threshold)}",
-                            "performed_by": "dashboard_user",
-                        },
-                    )
-                    if freeze_response is not None and freeze_response.status_code < 300:
-                        st.toast("Account frozen")
-                        st.rerun()
-                    else:
-                        detail = "Unable to freeze account via backend."
-                        try:
-                            if freeze_response is not None:
-                                detail = freeze_response.json().get("detail", freeze_response.text)
-                        except Exception:
-                            pass
-                        st.error(f"Freeze failed: {detail}")
-            else:
-                st.button("🛑 Freeze Account", disabled=True, use_container_width=True)
-                st.caption(f"Freeze available only for risk score >= {int(risk_threshold)}")
-        
-        with col2:
-            if account_status == "FROZEN":
-                st.button("📋 Download SAR CSV", disabled=True, use_container_width=True)
-            else:
-                sar_data = pd.DataFrame([{'Account_ID': account_id, 'Risk_Score': risk_score, 'Cyber_Flags': ', '.join(cyber_flags), 'Financial_Flags': ', '.join(fin_flags), 'Report_Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}])
-                st.download_button(
-                    label="📋 Download SAR CSV",
-                    data=sar_data.to_csv(index=False),
-                    file_name=f"SAR_{account_id}_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
-            
-        with col3:
-            if account_status == "FROZEN":
-                if st.button("💳 Attempt Transaction", use_container_width=True):
-                    txn_attempt = safe_post_json(
-                        f"{backend_base_url}/transactions/process",
-                        payload={"from_account": account_id, "to_account": "BEN_TEST_001", "amount": 1200.0},
-                    )
-                    if txn_attempt is not None and txn_attempt.status_code == 403:
-                        st.error("Transaction blocked: Account frozen")
-                    else:
-                        st.warning("Could not validate blocked transaction. Ensure backend is running.")
-            else:
-                if st.button("📞 Contact Customer"):
-                    st.success("📧 Alert sent to account holder!")
-
-        st.markdown("---")
-        
-        st.subheader("🤖 AI-Powered Analysis")
-        col4, col5 = st.columns(2)
-        
-        with col4:
-            if st.button("📋 Generate SAR Narrative"):
-                with st.spinner("Generating..."):
-                    st.session_state.ai_outputs['sar'] = explainer.generate_sar_narrative({'account_id': account_id, 'risk_score': risk_score}, cyber_flags, fin_flags)
-            if 'sar' in st.session_state.ai_outputs:
-                st.markdown(f"> **SAR Narrative:**<br>{st.session_state.ai_outputs['sar']}", unsafe_allow_html=True)
-            
-            if st.button("🔍 Investigation Steps"):
-                with st.spinner("Generating..."):
-                    st.session_state.ai_outputs['investigation'] = explainer.suggest_investigation_steps({'account_id': account_id, 'risk_score': risk_score}, cyber_flags + fin_flags)
-            if 'investigation' in st.session_state.ai_outputs:
-                st.markdown(f"> **Investigation Steps:**<br>{st.session_state.ai_outputs['investigation']}", unsafe_allow_html=True)
-        
-        with col5:
-            if st.button("🛡️ Prevention Tips"):
-                with st.spinner("Generating..."):
-                    st.session_state.ai_outputs['tips'] = explainer.explain_prevention_tips("money_mule")
-            if 'tips' in st.session_state.ai_outputs:
-                st.markdown(f"> **Prevention Tips:**<br>{st.session_state.ai_outputs['tips']}", unsafe_allow_html=True)
-            
-            if st.button("📖 Victim Education Scenario"):
-                st.session_state.ai_outputs['victim'] = True
-            if st.session_state.ai_outputs.get('victim', False):
-                show_victim_popup(account_id)
-
-    elif account_id:
-        st.error("Account not found. Please verify the ID.")
-
-# ------------------------------------------
-# VIEW: TRANSACTION TEST
-# ------------------------------------------
-elif view_mode == "Initiate Transaction":
-    st.subheader("💳 Initiate Transaction")
-    st.markdown("Create a transaction manually and verify **PASS** or **BLOCKED** based on account status.")
-
-    tx_col1, tx_col2 = st.columns(2)
-    with tx_col1:
-        tx_from = st.text_input("From Account ID", value="ACC_002747", key="tx_from_input")
-    with tx_col2:
-        tx_to = st.text_input("To Account ID", value="BEN_TEST_001", key="tx_to_input")
-
-    tx_amount = st.number_input("Amount", min_value=1.0, value=1200.0, step=100.0, key="tx_amount_input")
-
-    if tx_from:
-        from_status_response = safe_get_json(f"{backend_base_url}/accounts/{tx_from}/status")
-        if from_status_response is not None and from_status_response.status_code < 300:
-            from_status_payload = from_status_response.json()
-            st.markdown(
-                f"Source Account Status: {status_badge(from_status_payload.get('status', 'ACTIVE'))}",
-                unsafe_allow_html=True,
-            )
-        else:
-            from_acc = repo.get_account(tx_from)
-            if from_acc:
-                st.markdown(f"Source Account Status: {status_badge(from_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
-            else:
-                st.info("Source account not found in Neo4j yet. It will be created automatically on first transaction.")
-
-    if tx_to and tx_to.startswith("ACC_"):
-        to_status_response = safe_get_json(f"{backend_base_url}/accounts/{tx_to}/status")
-        if to_status_response is not None and to_status_response.status_code < 300:
-            to_status_payload = to_status_response.json()
-            st.markdown(
-                f"Destination Account Status: {status_badge(to_status_payload.get('status', 'ACTIVE'))}",
-                unsafe_allow_html=True,
-            )
-        else:
-            to_acc = repo.get_account(tx_to)
-            if to_acc:
-                st.markdown(f"Destination Account Status: {status_badge(to_acc.get('status', 'ACTIVE'))}", unsafe_allow_html=True)
-            else:
-                st.info("Destination account not found in Neo4j yet. It will be created automatically on first transaction.")
-
-    if st.button("Create Transaction", key="tx_create_btn", type="primary"):
-        response = safe_post_json(
-            f"{backend_base_url}/transactions",
-            payload={"from_account": tx_from, "to_account": tx_to, "amount": float(tx_amount)},
-        )
-
-        if response is None:
-            st.error("Backend unreachable. Start FastAPI backend.")
-        elif response.status_code < 300:
-            payload = response.json()
-            tx = payload.get("transaction", {})
-            st.success(f"PASS: Transaction approved ({tx.get('txn_id')})")
-            st.session_state.last_tx_receipt = {"txn": tx, "verdict": "PASS"}
-        elif response.status_code == 403:
-            detail = response.json().get("detail", "Account frozen")
-            if isinstance(detail, dict):
-                message = detail.get("message", "Account frozen")
-                tx = detail.get("transaction", {}) or {}
-            else:
-                message = str(detail)
-                tx = {}
-            st.error(f"BLOCKED: {message}")
-            blocked_tx = {
-                "txn_id": tx.get("txn_id", "N/A"),
-                "from_account": tx.get("from_account", tx_from),
-                "to_account": tx.get("to_account", tx_to),
-                "amount": tx.get("amount", float(tx_amount)),
-                "timestamp": tx.get("timestamp", datetime.utcnow().isoformat()),
-                "status": tx.get("status", "BLOCKED"),
+            cohort_data = {
+                "region": borrower_record["region"],
+                "loan_scheme": borrower_record["loan_scheme"],
             }
-            st.session_state.last_tx_receipt = {"txn": blocked_tx, "verdict": "BLOCKED"}
-        elif response.status_code == 404:
-            detail = response.json().get("detail", "Account not found")
-            st.warning(detail)
-        else:
-            detail = response.text
-            st.error(f"Transaction failed: {detail}")
-
-    receipt_payload = st.session_state.get("last_tx_receipt")
-    if receipt_payload:
-        receipt_tx = receipt_payload.get("txn", {})
-        receipt_verdict = receipt_payload.get("verdict", "N/A")
-        receipt_pdf = build_receipt_pdf(receipt_tx, receipt_verdict)
-        if receipt_pdf:
-            st.download_button(
-                "Download Receipt (PDF)",
-                data=receipt_pdf,
-                file_name=f"Receipt_{receipt_tx.get('txn_id', 'transaction')}.pdf",
-                mime="application/pdf",
-                key="tx_receipt_download_btn",
+            
+            report = explainer.explain_borrower_health(
+                borrower_record, 
+                behavioral_flags=behavioral_flags, 
+                contextual_flags=contextual_flags, 
+                cohort_data=cohort_data
             )
+            
+            st.markdown("### AI Risk Intelligence Report")
+            st.info(report)
+
+def render_admin_dashboard() -> None:
+    admin_name = st.session_state.get("admin_username", "Admin").title()
+    st.markdown(f"<h2 style='margin-bottom: 24px;'>Hello, {escape(admin_name)} 👋</h2>", unsafe_allow_html=True)
+
+    portfolio_df = build_portfolio_df()
+    summary = detector.portfolio_summary()
+    clusters = detector.detect_stress_clusters()
+
+    st.sidebar.header("Portfolio Filters")
+    risk_floor = st.sidebar.slider("Minimum risk score", 0, 100, 45, 5)
+    region_filter = st.sidebar.selectbox("Region", ["All"] + sorted(portfolio_df["region"].unique().tolist()))
+    scheme_filter = st.sidebar.selectbox("Loan Scheme", ["All"] + sorted(portfolio_df["loan_scheme"].unique().tolist()))
+    status_filter = st.sidebar.selectbox("Status", ["All", "ACTIVE", "SUPPORT_REQUIRED", "RECOVERING", "WATCHLIST"])
+    if st.sidebar.button("Logout", key="admin_logout", use_container_width=True):
+        logout()
+
+    filtered = portfolio_df.copy()
+    filtered = filtered[filtered["risk_score"] >= risk_floor]
+    if region_filter != "All":
+        filtered = filtered[filtered["region"] == region_filter]
+    if scheme_filter != "All":
+        filtered = filtered[filtered["loan_scheme"] == scheme_filter]
+    if status_filter != "All":
+        filtered = filtered[filtered["status"] == status_filter]
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Borrowers", f"{summary['total_borrowers']:,}")
+    metric_cols[1].metric("Avg Health Score", summary["average_health"])
+    metric_cols[2].metric("High Risk Borrowers", summary["high_risk_borrowers"])
+    metric_cols[3].metric("Regional Hotspots", len(clusters))
+
+    overview_tab, borrower_tab, cohort_tab, recover_tab = st.tabs(
+        ["Portfolio Overview", "Borrower Explorer", "Context & Cohorts", "Satark-Recover AI"]
+    )
+
+    with overview_tab:
+        st.subheader("Borrowers Requiring Attention")
+        display_cols = ["borrower_id", "name", "loan_scheme", "region", "risk_score", "health_score", "risk_level", "status"]
+        render_glass_table(
+            filtered[display_cols].sort_values(["risk_score", "health_score"], ascending=[False, True]).head(40),
+            max_height=520,
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("Risk by Region")
+        risk_by_region = (
+            filtered.groupby("region", as_index=False)
+            .agg(average_risk=("risk_score", "mean"), average_health=("health_score", "mean"))
+            .sort_values("average_risk", ascending=False)
+        )
+        if not risk_by_region.empty:
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            
+            fig.add_trace(go.Bar(
+                x=risk_by_region["region"],
+                y=[100] * len(risk_by_region),
+                marker_color='rgba(200, 200, 205, 0.25)',
+                hoverinfo='skip',
+                showlegend=False
+            ))
+            
+            fig.add_trace(go.Bar(
+                x=risk_by_region["region"],
+                y=risk_by_region["average_risk"],
+                marker=dict(
+                    color=risk_by_region["average_risk"],
+                    colorscale="YlOrRd",
+                    colorbar=dict(title="Avg Risk", thickness=15)
+                ),
+                text=[f"{val:.1f}" for val in risk_by_region["average_risk"]],
+                textposition='outside',
+                showlegend=False,
+                name='Risk'
+            ))
+            
+            fig.update_layout(
+                barmode='overlay',
+                bargap=0.4,
+                yaxis_title="Average Risk",
+                xaxis_title="Region",
+                yaxis=dict(showgrid=False, zeroline=False, range=[0, 110]),
+                xaxis=dict(showgrid=False),
+                margin=dict(l=16, r=16, t=32, b=44)
+            )
+            
+            # Safely attempt to add Dribbble-style rounded corners
+            try:
+                fig.update_traces(marker_cornerradius="30%")
+            except Exception:
+                pass
+            
+            avg_risk = risk_by_region["average_risk"].mean() if not risk_by_region["average_risk"].empty else 0
+            if avg_risk > 0:
+                fig.add_hline(y=avg_risk, line_dash="dot", line_color="rgba(0,0,0,0.3)")
+                
+            st.plotly_chart(style_figure(fig), use_container_width=True, theme=None)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("Loan Scheme Mix")
+        scheme_mix = filtered.groupby("loan_scheme", as_index=False).size()
+        if not scheme_mix.empty:
+            fig = px.pie(scheme_mix, names="loan_scheme", values="size", hole=0.45)
+            fig.update_layout(
+                margin=dict(l=16, r=16, t=32, b=20),
+                paper_bgcolor="rgba(255,255,255,0.18)",
+                font=dict(color="#1c1c1e"),
+                legend=dict(
+                    bgcolor="rgba(255,255,255,0.16)",
+                    bordercolor="rgba(255,255,255,0.35)",
+                    borderwidth=1,
+                ),
+            )
+            st.plotly_chart(fig, use_container_width=True, theme=None)
+
+    with borrower_tab:
+        st.subheader("Borrower Drilldown")
+        borrower_options = filtered["borrower_id"].tolist() if not filtered.empty else portfolio_df["borrower_id"].tolist()
+        selected_borrower = st.selectbox("Select borrower", borrower_options)
+        borrower_record = detector.analyze_borrower(selected_borrower).as_dict()
+        borrower_profile = borrowers_df[borrowers_df["borrower_id"] == selected_borrower].iloc[0]
+        borrower_state = repo.get_borrower(selected_borrower) or repo.ensure_borrower(selected_borrower, borrower_record["name"])
+
+        top_left, top_right = st.columns([1.2, 1])
+        with top_left:
+            st.markdown(f"### {borrower_record['name']}")
+            st.write(f"Borrower ID: `{selected_borrower}`")
+            st.write(f"Scheme: `{borrower_record['loan_scheme']}`")
+            st.write(f"Region: `{borrower_record['region']}`")
+            st.write(f"Current Status: `{borrower_state.get('status', 'ACTIVE')}`")
+            st.write(borrower_record["recommendation"])
+
+            button_cols = st.columns(2)
+            if button_cols[0].button("Mark Support Required", use_container_width=True):
+                repo.set_status(selected_borrower, "SUPPORT_REQUIRED", "Dashboard intervention recommendation", "dashboard")
+                st.success("Borrower successfully marked as Support Required.")
+            if button_cols[1].button("Mark Recovering", use_container_width=True):
+                repo.set_status(selected_borrower, "RECOVERING", "Borrower moved to recovery monitoring", "dashboard")
+                st.success("Borrower successfully marked as Recovering.")
+
+        with top_right:
+            metric_a, metric_b, metric_c = st.columns(3)
+            metric_a.metric("Risk Score", borrower_record["risk_score"])
+            metric_b.metric("Health Score", borrower_record["health_score"])
+            metric_c.metric("Peer Score", borrower_record["peer_score"])
+            st.markdown(render_segmented_health_bar(borrower_record["health_score"], "Borrower Health"), unsafe_allow_html=True)
+
+        flag_cols = st.columns(2)
+        with flag_cols[0]:
+            st.markdown("#### Behavioral Flags")
+            flags = borrower_record["behavioral_flags"] or ["no_major_behavioral_flags"]
+            html = "".join([f'<div class="flag-pill">{f.replace("_", " ").title()}</div>' for f in flags])
+            st.markdown(html, unsafe_allow_html=True)
+        with flag_cols[1]:
+            st.markdown("#### Contextual Flags")
+            flags = borrower_record["contextual_flags"] or ["no_major_contextual_flags"]
+            html = "".join([f'<div class="flag-pill">{f.replace("_", " ").title()}</div>' for f in flags])
+            st.markdown(html, unsafe_allow_html=True)
+
+        txns = transactions_df[transactions_df["borrower_id"] == selected_borrower].sort_values("timestamp")
+        
+        emi_txns = txns[txns["transaction_type"] == "EMI_PAYMENT"].copy()
+        if not emi_txns.empty:
+            import plotly.graph_objects as go
+            max_amt = emi_txns["amount"].max() * 1.2 if not emi_txns["amount"].empty else 5000
+            txn_chart = go.Figure()
+            
+            txn_chart.add_trace(go.Bar(
+                x=emi_txns["timestamp"].astype(str),
+                y=[max_amt] * len(emi_txns),
+                marker_color='rgba(200, 200, 205, 0.25)',
+                hoverinfo='skip',
+                showlegend=False
+            ))
+            
+            txn_chart.add_trace(go.Bar(
+                x=emi_txns["timestamp"].astype(str),
+                y=emi_txns["amount"],
+                marker_color='#FF5F2E',
+                text=emi_txns["amount"],
+                texttemplate='Rs %{text:,.0f}',
+                textposition='outside',
+                showlegend=False,
+                name='Paid'
+            ))
+            
+            txn_chart.update_layout(
+                title="Borrower EMI Payment History",
+                barmode='overlay',
+                bargap=0.45,
+                yaxis_title="Amount Paid (Rs)",
+                xaxis_title="Payment Date",
+                yaxis=dict(showgrid=False, zeroline=False),
+                xaxis=dict(showgrid=False)
+            )
+            
+            try:
+                txn_chart.update_traces(marker_cornerradius="30%")
+            except Exception:
+                pass
+            
+            avg_emi = emi_txns["amount"].mean() if not emi_txns["amount"].empty else 0
+            if avg_emi > 0:
+                txn_chart.add_hline(y=avg_emi, line_dash="dot", line_color="rgba(0,0,0,0.3)")
         else:
-            st.info("Install reportlab to enable PDF receipts: pip install reportlab")
+            txn_chart = px.line(
+                txns,
+                x="timestamp",
+                y="balance_after",
+                color="transaction_type",
+                markers=True,
+                title="Recent Borrower Cash-Flow Trail",
+            )
+        txn_chart.update_layout(margin=dict(l=16, r=16, t=56, b=64))
+        st.plotly_chart(style_figure(txn_chart), use_container_width=True, theme=None)
 
-    st.markdown("### Neo4j Graph (Live)")
-    graph_payload, graph_error = fetch_backend_graph()
-    if graph_error:
-        st.warning(graph_error)
-    else:
-        render_transaction_graph(graph_payload, "txn_neo4j_graph")
+        details = pd.DataFrame(
+            [
+                {"Metric": "Loan Amount", "Value": f"Rs {borrower_profile.loan_amount:,.0f}"},
+                {"Metric": "Outstanding Amount", "Value": f"Rs {borrower_profile.outstanding_amount:,.0f}"},
+                {"Metric": "EMI Amount", "Value": f"Rs {borrower_profile.emi_amount:,.0f}"},
+                {"Metric": "Days Past Due", "Value": int(borrower_profile.days_past_due)},
+                {"Metric": "Regional Stress Factor", "Value": borrower_record["regional_stress_factor"]},
+            ]
+        )
+        render_glass_table(details)
 
-# Footer
-st.sidebar.markdown("---")
-st.sidebar.markdown("<span style='color: #a0aec0;'>**CyberFin v3.1**</span>", unsafe_allow_html=True)
-st.sidebar.markdown("<span style='color: #a0aec0;'>Neo4j Architecture • AI Enhanced</span>", unsafe_allow_html=True)
+        st.markdown("### Transaction Summary")
+        admin_window_label = st.selectbox(
+            "Transaction window",
+            ["30 Days", "60 Days", "90 Days", "All Available"],
+            index=1,
+            key=f"admin_window_{selected_borrower}",
+        )
+        admin_window_days = {"30 Days": 30, "60 Days": 60, "90 Days": 90, "All Available": 10000}[admin_window_label]
+        st.markdown(render_transaction_days_card(txns, admin_window_days), unsafe_allow_html=True)
+
+        st.markdown("### Payment Schedule")
+        admin_schedule_data = []
+        for _, row in txns.sort_values("timestamp", ascending=False).iterrows():
+            if pd.notnull(row["timestamp"]):
+                date_str = row["timestamp"].strftime("%m/%d/%Y") if hasattr(row["timestamp"], "strftime") else str(row["timestamp"])
+            else:
+                date_str = ""
+            admin_schedule_data.append({
+                "Payment Date": date_str,
+                "Name": borrower_record["name"],
+                "Payment Amount": f"Rs {row['amount']:,.2f}" if pd.notna(row['amount']) else "-",
+                "Type": str(row["transaction_type"]).replace("_", " ").title(),
+                "Status": "Paid" if str(row["status"]).upper() in ["COMPLETED", "SUCCESS", "PAID"] else str(row["status"]).title(),
+                "Balance Left": f"Rs {row['balance_after']:,.2f}" if pd.notna(row['balance_after']) else "-"
+            })
+        admin_schedule_df = pd.DataFrame(admin_schedule_data)
+        if not admin_schedule_df.empty:
+            render_glass_table(admin_schedule_df, max_height=520)
+        else:
+            st.info("No payment history available.")
+
+        st.markdown("<br><div style='font-size: 1.75rem; font-weight: 700; color: #1c1c1e;'>Local Knowledge Graph</div>", unsafe_allow_html=True)
+        st.markdown("This live ego-graph visualizes risk contagion within a 2-hop radius around the selected borrower.")
+        render_borrower_knowledge_graph(selected_borrower, detector, filtered)
+
+    with cohort_tab:
+        st.subheader("Peer Benchmarking and Regional Context")
+        peer_view = (
+            filtered.groupby(["loan_scheme", "region"], as_index=False)
+            .agg(average_risk=("risk_score", "mean"), average_health=("health_score", "mean"), borrowers=("borrower_id", "count"))
+            .sort_values("average_risk", ascending=False)
+        )
+        render_glass_table(peer_view, max_height=420)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        regional_chart = px.scatter(
+            regional_df,
+            x="regional_stress_factor",
+            y="peer_health_baseline",
+            size="npa_rate",
+            color="region",
+            hover_name="region",
+            title="Regional Stress vs Peer Baseline",
+        )
+        regional_chart.update_layout(margin=dict(l=16, r=16, t=56, b=64))
+        st.plotly_chart(style_figure(regional_chart), use_container_width=True, theme=None)
+
+        st.markdown("<br>Stress Clusters", unsafe_allow_html=True)
+    with recover_tab:
+        render_satark_recover_tab(filtered, portfolio_df, detector, repo, explainer)
+
+    st.sidebar.markdown("---")
+    st.sidebar.caption("SatarkSetu | Borrower Health Intelligence MVP")
+
+
+def render_landing_page() -> None:
+    # Optional image encoding for logo-2.png
+    img_html = ""
+    try:
+        import base64
+        with open("logo_transparent.png", "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        img_html = f"data:image/png;base64,{encoded_string}"
+    except Exception:
+        pass
+
+    # Top Navigation
+    nav_left, nav_right = st.columns([3, 1.2])
+    with nav_right:
+        st.markdown("<br>", unsafe_allow_html=True)
+        btn1, btn2 = st.columns(2)
+        if btn1.button("Admin Log In", use_container_width=True, type="primary"):
+            st.session_state.view = "admin_login"
+            st.rerun()
+        if btn2.button("Borrowers", use_container_width=True):
+            st.session_state.view = "borrower_login"
+            st.rerun()
+
+    # 1. Hero Section
+    st.markdown(
+        f"""
+        <div class="landing-hero">
+            <div class="landing-copy">
+                <h1>SATARK SETU</h1>
+                <p class="subtext">
+                    SatarkSetu is proud to present the inaugural risk intelligence protocol — 
+                    a high-stakes behavioral analysis engine bringing together the most talented 
+                    investigators across the region to foster financial inclusivity.
+                </p>
+                <div class="landing-metrics">
+                    <div class="metric-box">
+                        <h3>10k+</h3>
+                        <p>Borrowers Monitored</p>
+                    </div>
+                    <div class="metric-box">
+                        <h3>45+</h3>
+                        <p>Regions Analyzed</p>
+                    </div>
+                    <div class="metric-box">
+                        <h3>GNN</h3>
+                        <p>Live Risk Engine</p>
+                    </div>
+                </div>
+            </div>
+            <div class="landing-art" style="padding: 40px;">
+                <img src="{img_html}" alt="Satark Setu Hero Art" style="width: 100%; max-width: 500px; filter: drop-shadow(0 30px 50px rgba(0,0,0,0.15)); border-radius: 40px; margin-top: -60px;" />
+            </div>
+        </div>
+        """, unsafe_allow_html=True
+    )
+    
+    # 2. Mission Row
+    st.markdown('<div class="mission-row">', unsafe_allow_html=True)
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.markdown(
+            """
+            <div class="mission-card">
+                <div class="mission-number">01</div>
+                <h3>The Mission</h3>
+                <p>SatarkSetu is proud to present intelligent risk monitoring, a high-stakes solution that reflects our core commitment to fostering competitive lending and creating unforgettable experiences for banks of every size.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    with m2:
+        st.markdown(
+            """
+            <div class="mission-card">
+                <div class="mission-number">02</div>
+                <h3>The Engine</h3>
+                <p>This is your chance to come play, compete, and own the spotlight. Whether you are a seasoned analyst or a newcomer looking to test your mettle, SatarkSetu delivers professionally organized matches paired with exciting algorithms.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    with m3:
+        st.markdown(
+            """
+            <div class="mission-card">
+                <div class="mission-number">03</div>
+                <h3>The Community</h3>
+                <p>Join a community that rewards your talent and become part of something bigger — where passion for fair financial access meets opportunity, competition, and shared growth on and off the ledger.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # 3. About Section
+    st.markdown('<div class="about-section">', unsafe_allow_html=True)
+    a_left, a_right = st.columns([1, 1.2])
+    with a_left:
+        st.markdown(
+            """
+            <div class="about-mini-title">WHO WE ARE</div>
+            <div class="about-header">ABOUT<br>SATARKSETU</div>
+            <p class="about-text">
+                SatarkSetu builds world-class financial infrastructure and the 
+                intelligent technology to manage it. From local schemes to 
+                professional scouting, we bridge the gap between raw data 
+                and real opportunity.
+            </p>
+            <br>
+            """, unsafe_allow_html=True
+        )
+    with a_right:
+        st.markdown(
+            """
+            <div class="staggered-grid">
+                <div class="staggered-item" style="background: linear-gradient(135deg, #174229 0%, #2c5e3f 100%); color: white; margin-top: 20px;">
+                    Intelligent Technology.
+                </div>
+                <div class="staggered-item" style="background: rgba(255,255,255,0.8);">
+                    Real Opportunity.
+                </div>
+                <div class="staggered-item" style="background: rgba(255,255,255,0.8); margin-top: 20px;">
+                    Graph Neural Networks
+                </div>
+                <div class="staggered-item" style="background: linear-gradient(135deg, #ff9933 0%, #d67a20 100%); color: white;">
+                    Financial Inclusion.
+                </div>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+
+def render_admin_login() -> None:
+    bg_b64 = ""
+    try:
+        import base64
+        with open("signin_optimized.jpg", "rb") as f:
+            bg_b64 = base64.b64encode(f.read()).decode()
+    except Exception:
+        pass
+    bg_style = f"background: linear-gradient(to bottom, rgba(35, 34, 32, 0.45) 0%, rgba(35, 34, 32, 0.85) 100%), url('data:image/jpeg;base64,{bg_b64}') center/cover no-repeat;" if bg_b64 else "background: #232220;"
+
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    c1, c2 = st.columns([1.5, 1], gap="small")
+    with c1:
+        st.markdown(
+            f"""
+            <div style="{bg_style} border-radius: 40px; padding: 100px 60px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 40px 80px rgba(0,0,0,0.15);">
+                <h2 class="signin-hero-title" style="font-size: 4.5rem; font-weight: 700; line-height: 1.05; letter-spacing: -2px; margin-bottom: 24px;">Manage<br>your portfolio</h2>
+                <p class="signin-hero-tagline" style="font-size: 1.2rem; max-width: 400px; line-height: 1.5;">Global risk monitoring made simple — intelligent tracking solutions for you.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    with c2:
+        st.markdown(
+            """
+            <div style="padding: 40px 40px 0 40px;">
+                <h3 style="font-size: 2.5rem; font-weight: 700; margin-bottom: 24px; color: #1c1c1e;">Sign In</h3>
+            </div>
+            """, unsafe_allow_html=True
+        )
+        with st.container():
+            col_inner, _ = st.columns([1, 0.1])
+            with col_inner:
+                with st.form("admin_login_form", border=False):
+                    username = st.text_input("Email or Username", placeholder="Enter admin username")
+                    password = st.text_input("Password", type="password", placeholder="Enter your password")
+                    st.markdown("<p style='font-size: 0.85rem; color: #ff5f2e; margin-top: -12px; margin-bottom: 24px; cursor: pointer; font-weight: 500;'>Forgot password?</p>", unsafe_allow_html=True)
+                    submitted = st.form_submit_button("Sign In →", use_container_width=True)
+                
+                if st.button("← Back to Website", key="admin_back", use_container_width=False):
+                    st.session_state.view = "landing"
+                    st.rerun()
+
+                if submitted:
+                    if ADMIN_CREDENTIALS.get(username) == password:
+                        st.session_state.admin_authenticated = True
+                        st.session_state.admin_username = username
+                        st.session_state.view = "admin"
+                        st.rerun()
+                    st.error("Invalid admin credentials.")
+
+
+def render_borrower_login() -> None:
+    bg_b64 = ""
+    try:
+        import base64
+        with open("signin_optimized.jpg", "rb") as f:
+            bg_b64 = base64.b64encode(f.read()).decode()
+    except Exception:
+        pass
+    bg_style = f"background: linear-gradient(to bottom, rgba(35, 34, 32, 0.45) 0%, rgba(35, 34, 32, 0.85) 100%), url('data:image/jpeg;base64,{bg_b64}') center/cover no-repeat;" if bg_b64 else "background: #232220;"
+
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    c1, c2 = st.columns([1.5, 1], gap="small")
+    with c1:
+        st.markdown(
+            f"""
+            <div style="{bg_style} border-radius: 40px; padding: 100px 60px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 40px 80px rgba(0,0,0,0.15);">
+                <h2 class="signin-hero-title" style="font-size: 4.5rem; font-weight: 700; line-height: 1.05; letter-spacing: -2px; margin-bottom: 24px;">Manage<br>your loans</h2>
+                <p class="signin-hero-tagline" style="font-size: 1.2rem; max-width: 400px; line-height: 1.5;">Access your recovery timelines and personalized loan management.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    with c2:
+        st.markdown(
+            """
+            <div style="padding: 40px 40px 0 40px;">
+                <h3 style="font-size: 2.5rem; font-weight: 700; margin-bottom: 24px; color: #1c1c1e;">Sign In</h3>
+            </div>
+            """, unsafe_allow_html=True
+        )
+        with st.container():
+            col_inner, _ = st.columns([1, 0.1])
+            with col_inner:
+                with st.form("borrower_login_form", border=False):
+                    borrower_id = st.text_input("Borrower ID", placeholder="Enter your ID")
+                    password = st.text_input("Password", type="password", placeholder="Enter your password")
+                    st.markdown("<p style='font-size: 0.85rem; color: #ff5f2e; margin-top: -12px; margin-bottom: 24px; cursor: pointer; font-weight: 500;'>Forgot password?</p>", unsafe_allow_html=True)
+                    submitted = st.form_submit_button("Sign In →", use_container_width=True)
+                
+                if st.button("← Back to Website", key="borrower_back", use_container_width=False):
+                    st.session_state.view = "landing"
+                    st.rerun()
+
+                if submitted:
+                    borrower_exists = borrower_id in set(borrowers_df["borrower_id"])
+                    if borrower_exists and password == borrower_id:
+                        st.session_state.borrower_authenticated = True
+                        st.session_state.borrower_id = borrower_id
+                        st.session_state.view = "borrower"
+                        st.rerun()
+                    st.error("Invalid borrower ID or password.")
+
+
+if "view" not in st.session_state:
+    st.session_state.view = "landing"
+
+if st.session_state.view == "admin" and st.session_state.get("admin_authenticated"):
+    render_admin_dashboard()
+elif st.session_state.view == "borrower" and st.session_state.get("borrower_authenticated"):
+    render_borrower_dashboard(st.session_state["borrower_id"])
+elif st.session_state.view == "admin_login":
+    render_admin_login()
+elif st.session_state.view == "borrower_login":
+    render_borrower_login()
+else:
+    render_landing_page()

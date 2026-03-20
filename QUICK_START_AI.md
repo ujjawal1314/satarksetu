@@ -7,7 +7,7 @@ Your Gemini AI integration is **COMPLETE and WORKING** in fallback mode with pro
 
 ### Step 1: Start the Dashboard
 ```bash
-cd CyberFin
+cd SatarkSetu
 streamlit run dashboard_enhanced.py
 ```
 

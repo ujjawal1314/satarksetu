@@ -332,4 +332,4 @@ docker-compose logs -f
 
 **Ready for:** Demo, deployment, and presentation!
 
-🛡️ **CyberFin Fusion - Improved, Transparent, Production-Ready!**
+🛡️ **SatarkSetu - Improved, Transparent, Production-Ready!**

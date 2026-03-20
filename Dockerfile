@@ -1,4 +1,4 @@
-# CyberFin Fusion - Docker Container
+# SatarkSetu - Docker Container
 # Multi-stage build for optimized image size
 
 # Stage 1: Base image with Python

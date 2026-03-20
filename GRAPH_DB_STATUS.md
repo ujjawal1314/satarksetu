@@ -59,7 +59,7 @@ The dashboard:
 use_neo4j = os.getenv('USE_NEO4J', 'false').lower() == 'true'
 
 # 2. Create detector with preference
-detector = CyberFinDetectorNeo4j(cyber_df, txn_df, use_neo4j=use_neo4j)
+detector = SatarkSetuDetectorNeo4j(cyber_df, txn_df, use_neo4j=use_neo4j)
 
 # 3. Factory selects appropriate database
 if use_neo4j:
@@ -121,7 +121,7 @@ This shows:
 ```bash
 docker run --name neo4j \
   -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/cyberfin2024 \
+  -e NEO4J_AUTH=neo4j/satarksetu2024 \
   -d neo4j:latest
 ```
 
@@ -130,7 +130,7 @@ docker run --name neo4j \
 USE_NEO4J=true
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=cyberfin2024
+NEO4J_PASSWORD=satarksetu2024
 ```
 
 ### Step 3: Restart Dashboard
@@ -221,7 +221,7 @@ python -c "from neo4j import GraphDatabase; print('✅ Driver installed')"
 
 ### Check 3: Detector Initialization
 ```bash
-python -c "from detection_engine_neo4j import CyberFinDetectorNeo4j; print('✅ Detector available')"
+python -c "from detection_engine_neo4j import SatarkSetuDetectorNeo4j; print('✅ Detector available')"
 ```
 **Result**: ✅ Working
 

@@ -5,7 +5,7 @@
 ### 1. Updated .env Configuration ✅
 ```env
 USE_NEO4J=true  ← Changed from false
-NEO4J_PASSWORD=cyberfin2024  ← Updated password
+NEO4J_PASSWORD=satarksetu2024  ← Updated password
 ```
 
 ### 2. Created Documentation ✅
@@ -86,7 +86,7 @@ start_neo4j.bat
 ```bash
 docker run --name neo4j \
   -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/cyberfin2024 \
+  -e NEO4J_AUTH=neo4j/satarksetu2024 \
   -d neo4j:latest
 ```
 
@@ -109,7 +109,7 @@ neo4j    Up 2 minutes    0.0.0.0:7474->7474/tcp, 0.0.0.0:7687->7687/tcp
 
 ### Step 2: Check Neo4j Browser
 1. Open: http://localhost:7474
-2. Login: neo4j / cyberfin2024
+2. Login: neo4j / satarksetu2024
 3. Run: `MATCH (n) RETURN count(n)`
 4. Should show: 23,054 nodes (after dashboard runs)
 
@@ -173,7 +173,7 @@ Finds communities (clusters) of highly connected nodes.
 2. **Hierarchical**: Builds communities at multiple levels
 3. **Fast**: O(n log n) complexity
 
-### In CyberFin
+### In SatarkSetu
 ```python
 # Step 1: Build graph
 ACC_001 → BEN_SG_001
@@ -201,7 +201,7 @@ if len(community_5) >= 3:
 - `USE_NEO4J=true`
 - `NEO4J_URI=bolt://localhost:7687`
 - `NEO4J_USER=neo4j`
-- `NEO4J_PASSWORD=cyberfin2024`
+- `NEO4J_PASSWORD=satarksetu2024`
 
 ### Features ✅
 - ✅ Neo4j integration enabled
@@ -287,7 +287,7 @@ docker start neo4j
 
 ### What Changed
 - ✅ `.env` updated to use Neo4j
-- ✅ Password set to `cyberfin2024`
+- ✅ Password set to `satarksetu2024`
 - ✅ Documentation created
 
 ### What You Get
